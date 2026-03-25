@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 - 2026-03-25
+
+### Added
+- Bazel build system support
+  - Detects projects via `MODULE.bazel`, `WORKSPACE.bazel`, and `WORKSPACE` markers
+  - Scans `bazel-bin/` for dependency JARs
+  - Discovers source directories in Bazel-native layouts (Java files alongside BUILD files)
+  - Falls back to standard source layouts (`src/main/java`) when present
+- 6 new tests for Bazel detection and source scanning
+
+### Changed
+- README clarifies Java 21 is the server runtime, not an analysis restriction
+  - JavaLens analyzes Java source from version 1.1 through 23
+
 ## 1.0.2 - 2026-01-03
 
 ### Fixed

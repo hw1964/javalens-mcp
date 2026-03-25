@@ -92,6 +92,8 @@ JavaLens wraps **Eclipse JDT Core** directly via OSGi, providing:
 
 - **Java 21** or later (must be on PATH or set JAVA_HOME)
 
+JavaLens is an analytical server, not a compiler. It uses Eclipse JDT 2024-09 to parse and understand Java source code from **version 1.1 through 23**. Java 21 is required only as the server runtime.
+
 ### Download
 
 Download from [Releases](https://github.com/pzalutski-pixel/javalens-mcp/releases):
@@ -274,7 +276,7 @@ All refactoring tools return **text edits** rather than applying changes directl
 | Tool | Description |
 |------|-------------|
 | `health_check` | Server status and capabilities |
-| `load_project` | Load Maven/Gradle/plain Java project |
+| `load_project` | Load Maven/Gradle/Bazel/plain Java project |
 | `get_project_structure` | Get package hierarchy |
 | `get_classpath_info` | Get classpath entries |
 | `get_type_members` | Get members by type name |
@@ -342,6 +344,7 @@ Each MCP session is independent with its own workspace UUID. Multiple sessions c
 |--------|-----------|
 | Maven | `pom.xml` |
 | Gradle | `build.gradle` / `build.gradle.kts` |
+| Bazel | `MODULE.bazel` / `WORKSPACE.bazel` / `WORKSPACE` |
 | Plain Java | `src/` directory |
 
 ## Configuration
@@ -362,9 +365,9 @@ cd javalens-mcp
 
 Distributions are output to `org.javalens.product/target/products/`.
 
-### Requirements
+### Build Requirements
 
-- Java 21+
+- Java 21+ (server runtime)
 - Maven 3.9+ (wrapper included)
 
 ## Architecture

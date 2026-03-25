@@ -104,6 +104,79 @@ class ProjectImporterTest {
             "Should prefer Maven when both pom.xml and build.gradle exist");
     }
 
+    // ========== Bazel Build System Tests ==========
+
+    @Test
+    @DisplayName("detectBuildSystem should detect Bazel project with WORKSPACE")
+    void detectBuildSystem_detectsBazelWorkspace(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("WORKSPACE"), "# Bazel workspace");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.BAZEL, buildSystem,
+            "Should detect Bazel project from WORKSPACE");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem should detect Bazel project with WORKSPACE.bazel")
+    void detectBuildSystem_detectsBazelWorkspaceDotBazel(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("WORKSPACE.bazel"), "# Bazel workspace");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.BAZEL, buildSystem,
+            "Should detect Bazel project from WORKSPACE.bazel");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem should detect Bazel project with MODULE.bazel")
+    void detectBuildSystem_detectsBazelModule(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("MODULE.bazel"), "module(name = \"test\")");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.BAZEL, buildSystem,
+            "Should detect Bazel project from MODULE.bazel");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem should prefer Maven over Bazel when both exist")
+    void detectBuildSystem_prefersMavenOverBazel(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("pom.xml"), "<project></project>");
+        Files.writeString(tempDir.resolve("WORKSPACE"), "# Bazel workspace");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.MAVEN, buildSystem,
+            "Should prefer Maven when both pom.xml and WORKSPACE exist");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem should prefer Gradle over Bazel when both exist")
+    void detectBuildSystem_prefersGradleOverBazel(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("build.gradle"), "// Gradle");
+        Files.writeString(tempDir.resolve("WORKSPACE"), "# Bazel workspace");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.GRADLE, buildSystem,
+            "Should prefer Gradle when both build.gradle and WORKSPACE exist");
+    }
+
+    @Test
+    @DisplayName("countSourceFiles should count Java files in Bazel project with standard layout")
+    void countSourceFiles_countsBazelStandardLayout(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("WORKSPACE"), "");
+        Path srcDir = tempDir.resolve("src/main/java/com/example");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("App.java"), "package com.example; public class App {}");
+        Files.writeString(srcDir.resolve("Lib.java"), "package com.example; public class Lib {}");
+
+        int count = importer.countSourceFiles(tempDir);
+
+        assertEquals(2, count, "Should find 2 Java files in Bazel standard layout");
+    }
+
     // ========== Source File Counting Tests ==========
 
     @Test
