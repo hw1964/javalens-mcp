@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 - 2026-04-08
+
+### Added
+- 7 new analysis tools (Tool count: 56 → 63)
+  - `analyze_change_impact` — blast radius assessment for symbol changes
+  - `analyze_data_flow` — variable read/write/declaration tracking within methods
+  - `analyze_control_flow` — branching, loops, return/throw points, nesting depth
+  - `get_di_registrations` — Spring DI registration scanning (@Component, @Bean, @Autowired, @Inject)
+  - `find_reflection_usage` — detect Class.forName(), Method.invoke(), and other reflection calls
+  - `find_large_classes` — find types exceeding configurable size thresholds
+  - `find_naming_violations` — check against Java naming conventions
+
 ## 1.1.5 - 2026-04-08
 
 ### Added

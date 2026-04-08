@@ -60,6 +60,13 @@ import org.javalens.mcp.tools.ApplyQuickFixTool;
 import org.javalens.mcp.tools.GetComplexityMetricsTool;
 import org.javalens.mcp.tools.GetDependencyGraphTool;
 import org.javalens.mcp.tools.FindCircularDependenciesTool;
+import org.javalens.mcp.tools.AnalyzeChangeImpactTool;
+import org.javalens.mcp.tools.AnalyzeControlFlowTool;
+import org.javalens.mcp.tools.AnalyzeDataFlowTool;
+import org.javalens.mcp.tools.GetDiRegistrationsTool;
+import org.javalens.mcp.tools.FindReflectionUsageTool;
+import org.javalens.mcp.tools.FindLargeClassesTool;
+import org.javalens.mcp.tools.FindNamingViolationsTool;
 import org.javalens.mcp.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -274,6 +281,15 @@ public class JavaLensApplication implements IApplication {
         toolRegistry.register(new GetComplexityMetricsTool(() -> jdtService));
         toolRegistry.register(new GetDependencyGraphTool(() -> jdtService));
         toolRegistry.register(new FindCircularDependenciesTool(() -> jdtService));
+
+        // Advanced analysis tools
+        toolRegistry.register(new AnalyzeChangeImpactTool(() -> jdtService));
+        toolRegistry.register(new AnalyzeControlFlowTool(() -> jdtService));
+        toolRegistry.register(new AnalyzeDataFlowTool(() -> jdtService));
+        toolRegistry.register(new GetDiRegistrationsTool(() -> jdtService));
+        toolRegistry.register(new FindReflectionUsageTool(() -> jdtService));
+        toolRegistry.register(new FindLargeClassesTool(() -> jdtService));
+        toolRegistry.register(new FindNamingViolationsTool(() -> jdtService));
     }
 
     private void runMessageLoop() {

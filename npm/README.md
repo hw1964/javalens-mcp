@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/javalens-mcp.svg)](https://www.npmjs.com/package/javalens-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/pzalutski-pixel/javalens-mcp/blob/master/LICENSE)
 
-An MCP server providing **56 semantic analysis tools** for Java, built directly on Eclipse JDT for compiler-accurate code understanding.
+An MCP server providing **63 semantic analysis tools** for Java, built directly on Eclipse JDT for compiler-accurate code understanding.
 
 ## Requirements
 
@@ -48,11 +48,11 @@ AI systems need compiler-accurate insights that reading source files cannot prov
 ### Navigation (10 tools)
 Search symbols, go to definition, find references, find implementations, type hierarchy, document symbols, and positional queries.
 
-### Fine-Grained Reference Search (8 tools)
-JDT-unique capabilities not available through LSP: find annotation usages, type instantiations, casts, instanceof checks, throws declarations, catch blocks, method references, and type arguments.
+### Fine-Grained Reference Search (9 tools)
+JDT-unique capabilities not available through LSP: find annotation usages, type instantiations, casts, instanceof checks, throws declarations, catch blocks, method references, type arguments, and reflection usage detection.
 
-### Analysis (12 tools)
-Diagnostics, syntax validation, call hierarchy (incoming/outgoing), field write tracking, test discovery, unused code detection, and possible bug detection (null risks, empty catches, resource leaks).
+### Analysis (16 tools)
+Diagnostics, syntax validation, call hierarchy (incoming/outgoing), field write tracking, test discovery, unused code detection, possible bug detection, change impact analysis, data flow analysis, control flow analysis, and Spring DI registration scanning.
 
 ### Compound Analysis (4 tools)
 Combine multiple queries to reduce round-trips: analyze file, analyze type, analyze method, and type usage summary.
@@ -60,8 +60,8 @@ Combine multiple queries to reduce round-trips: analyze file, analyze type, anal
 ### Refactoring (10 tools)
 All return text edits rather than modifying files directly: rename, organize imports, extract variable/method/constant/interface, inline variable/method, change method signature, and convert anonymous to lambda.
 
-### Quick Fixes & Metrics (6 tools)
-Import suggestions, quick fixes, cyclomatic complexity, dependency graphs, and circular dependency detection.
+### Quick Fixes & Metrics (8 tools)
+Import suggestions, quick fixes, cyclomatic complexity, dependency graphs, circular dependency detection, large class detection, and naming convention violations.
 
 ## Build System Support
 

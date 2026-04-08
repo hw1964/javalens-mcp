@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 
-An MCP server providing 56 semantic analysis tools for Java, built directly on Eclipse JDT for compiler-accurate code understanding.
+An MCP server providing 63 semantic analysis tools for Java, built directly on Eclipse JDT for compiler-accurate code understanding.
 
 ## Built for AI Agents
 
@@ -213,7 +213,7 @@ JavaLens Workspace (specified by -data)
 | `get_method_at_position` | Get method details at cursor |
 | `get_field_at_position` | Get field details at cursor |
 
-### Fine-Grained Reference Search (8 tools)
+### Fine-Grained Reference Search (9 tools)
 
 These use JDT's unique reference type constants—not available through LSP:
 
@@ -227,8 +227,9 @@ These use JDT's unique reference type constants—not available through LSP:
 | `find_catch_blocks` | Find all `catch(Exception e)` blocks |
 | `find_method_references` | Find all `Type::method` expressions |
 | `find_type_arguments` | Find all `List<Type>` usages |
+| `find_reflection_usage` | Find `Class.forName()`, `Method.invoke()`, and other reflection calls |
 
-### Analysis (12 tools)
+### Analysis (16 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -244,6 +245,10 @@ These use JDT's unique reference type constants—not available through LSP:
 | `get_javadoc` | Get parsed Javadoc |
 | `get_signature_help` | Get method signature at call site |
 | `get_enclosing_element` | Get containing method/class at position |
+| `analyze_change_impact` | Blast radius — all files and call sites affected by changing a symbol |
+| `analyze_data_flow` | Variable read/write/declaration tracking within a method |
+| `analyze_control_flow` | Branching, loops, return/throw points, nesting depth |
+| `get_di_registrations` | Find Spring DI registrations (@Component, @Bean, @Autowired, @Inject) |
 
 ### Compound Analysis (4 tools)
 
@@ -281,13 +286,15 @@ All refactoring tools return **text edits** rather than applying changes directl
 | `get_quick_fixes` | List available fixes for problem at position |
 | `apply_quick_fix` | Apply fix by ID (add import, remove import, add throws, try-catch) |
 
-### Metrics (3 tools)
+### Metrics (5 tools)
 
 | Tool | Description |
 |------|-------------|
 | `get_complexity_metrics` | Cyclomatic/cognitive complexity, LOC per method |
 | `get_dependency_graph` | Package/type dependencies as nodes and edges |
 | `find_circular_dependencies` | Detect package cycles using Tarjan's SCC algorithm |
+| `find_large_classes` | Find types exceeding method/field/line count thresholds |
+| `find_naming_violations` | Check against Java naming conventions |
 
 ### Project & Infrastructure (6 tools)
 
