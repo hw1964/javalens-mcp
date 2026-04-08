@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5 - 2026-04-08
+
+### Added
+- Published to official MCP Registry (registry.modelcontextprotocol.io)
+- Added `mcp-server` keyword to npm package for discoverability
+
 ## 1.1.4 - 2026-04-04
 
 ### Changed

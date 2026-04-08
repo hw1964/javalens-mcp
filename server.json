@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.pzalutski-pixel/javalens",
+  "title": "JavaLens",
+  "description": "56 semantic Java analysis tools via Eclipse JDT: navigation, refactoring, code intelligence.",
+  "repository": {
+    "url": "https://github.com/pzalutski-pixel/javalens-mcp",
+    "source": "github"
+  },
+  "version": "1.1.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "javalens-mcp",
+      "version": "1.1.5",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "JAVA_PROJECT_PATH",
+          "description": "Auto-load project on startup",
+          "format": "string"
+        },
+        {
+          "name": "JAVALENS_TIMEOUT_SECONDS",
+          "description": "Operation timeout in seconds",
+          "format": "number",
+          "default": "30"
+        },
+        {
+          "name": "JAVALENS_LOG_LEVEL",
+          "description": "Log level: TRACE, DEBUG, INFO, WARN, ERROR",
+          "format": "string",
+          "default": "INFO"
+        }
+      ]
+    }
+  ]
+}
