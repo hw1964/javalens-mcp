@@ -290,4 +290,161 @@ class ProjectImporterTest {
         assertTrue(javaProject.exists(), "Java project should exist");
         assertEquals(project, javaProject.getProject(), "Should wrap the same IProject");
     }
+
+    // ========== ADR 0001: pom.xml <sourceDirectory> + .classpath precedence ==========
+
+    @Test
+    @DisplayName("readPomSourceDirs returns <sourceDirectory> override resolved against pom dir")
+    void readPomSourceDirs_returnsOverride(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+            <?xml version="1.0"?>
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>g</groupId><artifactId>a</artifactId><version>1</version>
+                <build>
+                    <sourceDirectory>strategies/src</sourceDirectory>
+                    <testSourceDirectory>src/test/java</testSourceDirectory>
+                </build>
+            </project>
+            """);
+
+        ProjectImporter.SourceDirs dirs = ProjectImporter.readPomSourceDirs(tempDir.resolve("pom.xml"));
+
+        assertTrue(dirs.srcMain().isPresent(), "<sourceDirectory> should be detected");
+        assertEquals(tempDir.resolve("strategies/src").normalize(), dirs.srcMain().get(),
+            "Source override should resolve relative to pom directory");
+        assertTrue(dirs.srcTest().isPresent(), "<testSourceDirectory> should be detected");
+        assertEquals(tempDir.resolve("src/test/java").normalize(), dirs.srcTest().get());
+    }
+
+    @Test
+    @DisplayName("readPomSourceDirs returns empty when pom has no <build> section")
+    void readPomSourceDirs_absentReturnsEmpty(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("pom.xml"), """
+            <?xml version="1.0"?>
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>g</groupId><artifactId>a</artifactId><version>1</version>
+            </project>
+            """);
+
+        ProjectImporter.SourceDirs dirs = ProjectImporter.readPomSourceDirs(tempDir.resolve("pom.xml"));
+
+        assertTrue(dirs.srcMain().isEmpty(), "No override should yield empty srcMain");
+        assertTrue(dirs.srcTest().isEmpty(), "No override should yield empty srcTest");
+    }
+
+    @Test
+    @DisplayName("readPomSourceDirs returns empty when pom.xml is missing")
+    void readPomSourceDirs_missingPomReturnsEmpty(@TempDir Path tempDir) {
+        ProjectImporter.SourceDirs dirs = ProjectImporter.readPomSourceDirs(tempDir.resolve("pom.xml"));
+
+        assertTrue(dirs.srcMain().isEmpty());
+        assertTrue(dirs.srcTest().isEmpty());
+    }
+
+    @Test
+    @DisplayName("readEclipseClasspath returns src, lib, output entries")
+    void readEclipseClasspath_returnsAllKinds(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve(".classpath"), """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <classpath>
+                <classpathentry kind="src" path="src"/>
+                <classpathentry kind="lib" path="lib/foo.jar"/>
+                <classpathentry kind="output" path="bin"/>
+                <classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+            </classpath>
+            """);
+
+        ProjectImporter.ClasspathInfo info = ProjectImporter.readEclipseClasspath(tempDir);
+
+        assertEquals(1, info.srcPaths().size());
+        assertEquals(tempDir.resolve("src").normalize(), info.srcPaths().get(0));
+        assertEquals(1, info.libPaths().size());
+        assertEquals(tempDir.resolve("lib/foo.jar").normalize(), info.libPaths().get(0));
+        assertTrue(info.outputPath().isPresent());
+        assertEquals(tempDir.resolve("bin").normalize(), info.outputPath().get());
+    }
+
+    @Test
+    @DisplayName("readEclipseClasspath resolves '..' refs against project parent")
+    void readEclipseClasspath_resolvesParentRefs(@TempDir Path tempDir) throws IOException {
+        // Mirrors the strategies-orb project layout: lib jars in a sibling dir.
+        Path projectRoot = tempDir.resolve("strategies");
+        Files.createDirectories(projectRoot);
+        Files.createDirectories(tempDir.resolve("jats"));
+        Files.writeString(projectRoot.resolve(".classpath"), """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <classpath>
+                <classpathentry kind="src" path="src"/>
+                <classpathentry kind="lib" path="../jats/com.jats2.model_1.0.0.jar"/>
+            </classpath>
+            """);
+
+        ProjectImporter.ClasspathInfo info = ProjectImporter.readEclipseClasspath(projectRoot);
+
+        assertEquals(1, info.libPaths().size());
+        assertEquals(tempDir.resolve("jats/com.jats2.model_1.0.0.jar").normalize(),
+            info.libPaths().get(0),
+            "'..' should be resolved against the project parent directory");
+    }
+
+    @Test
+    @DisplayName("readEclipseClasspath returns empty when .classpath absent")
+    void readEclipseClasspath_missingReturnsEmpty(@TempDir Path tempDir) {
+        ProjectImporter.ClasspathInfo info = ProjectImporter.readEclipseClasspath(tempDir);
+
+        assertTrue(info.srcPaths().isEmpty());
+        assertTrue(info.libPaths().isEmpty());
+        assertTrue(info.outputPath().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Maven <sourceDirectory> override is honored in countSourceFiles")
+    void countSourceFiles_honorsPomSourceDirectoryOverride(@TempDir Path tempDir) throws IOException {
+        // Hybrid layout: pom.xml at root declares <sourceDirectory>strategies/src</sourceDirectory>,
+        // production code lives there. src/test/java exists but should NOT be the only source seen.
+        Files.writeString(tempDir.resolve("pom.xml"), """
+            <?xml version="1.0"?>
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>g</groupId><artifactId>a</artifactId><version>1</version>
+                <build>
+                    <sourceDirectory>strategies/src</sourceDirectory>
+                    <testSourceDirectory>src/test/java</testSourceDirectory>
+                </build>
+            </project>
+            """);
+        Path prodSrc = tempDir.resolve("strategies/src/com/example");
+        Files.createDirectories(prodSrc);
+        Files.writeString(prodSrc.resolve("Production.java"), "package com.example; class Production {}");
+        Path testSrc = tempDir.resolve("src/test/java/com/example");
+        Files.createDirectories(testSrc);
+        Files.writeString(testSrc.resolve("Tests.java"), "package com.example; class Tests {}");
+
+        int count = importer.countSourceFiles(tempDir);
+
+        assertEquals(2, count,
+            "Both <sourceDirectory> production code and <testSourceDirectory> tests should be counted");
+    }
+
+    @Test
+    @DisplayName(".classpath src entries are honored when no pom override")
+    void countSourceFiles_honorsClasspathSrcEntries(@TempDir Path tempDir) throws IOException {
+        // No pom; .classpath declares non-conventional source root.
+        Files.writeString(tempDir.resolve(".classpath"), """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <classpath>
+                <classpathentry kind="src" path="custom-src"/>
+            </classpath>
+            """);
+        Path src = tempDir.resolve("custom-src/com/example");
+        Files.createDirectories(src);
+        Files.writeString(src.resolve("A.java"), "package com.example; class A {}");
+        Files.writeString(src.resolve("B.java"), "package com.example; class B {}");
+
+        int count = importer.countSourceFiles(tempDir);
+
+        assertEquals(2, count, ".classpath src=custom-src should be the source root");
+    }
 }

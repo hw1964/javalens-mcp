@@ -12,6 +12,13 @@ import org.eclipse.jdt.launching.JavaRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
@@ -20,6 +27,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -190,9 +198,35 @@ public class ProjectImporter {
 
     /**
      * Add source paths from a single project directory.
+     *
+     * Discovery precedence (ADR 0001):
+     * 1. pom.xml &lt;sourceDirectory&gt; / &lt;testSourceDirectory&gt; overrides if declared.
+     * 2. Eclipse .classpath &lt;classpathentry kind="src"&gt; entries if .classpath exists.
+     * 3. Hardcoded SOURCE_MAPPINGS heuristic walk + &lt;root&gt;/src/ fallback.
      */
     private void addSourcePathsFromDirectory(java.nio.file.Path projectPath, List<java.nio.file.Path> sourcePaths) {
-        // Check standard layouts
+        int initialSize = sourcePaths.size();
+
+        // 1. pom.xml <sourceDirectory> / <testSourceDirectory> overrides.
+        SourceDirs pomDirs = readPomSourceDirs(projectPath.resolve("pom.xml"));
+        pomDirs.srcMain().filter(Files::isDirectory).ifPresent(sourcePaths::add);
+        pomDirs.srcTest().filter(Files::isDirectory).ifPresent(sourcePaths::add);
+        if (sourcePaths.size() > initialSize) {
+            return;
+        }
+
+        // 2. Eclipse .classpath src entries.
+        ClasspathInfo cp = readEclipseClasspath(projectPath);
+        for (java.nio.file.Path src : cp.srcPaths()) {
+            if (Files.isDirectory(src)) {
+                sourcePaths.add(src);
+            }
+        }
+        if (sourcePaths.size() > initialSize) {
+            return;
+        }
+
+        // 3. Heuristic: standard SOURCE_MAPPINGS layouts.
         for (int i = 0; i < SOURCE_MAPPINGS.length - 1; i++) {
             java.nio.file.Path srcPath = projectPath.resolve(SOURCE_MAPPINGS[i][0]);
             if (Files.exists(srcPath) && Files.isDirectory(srcPath)) {
@@ -250,6 +284,19 @@ public class ProjectImporter {
     }
 
     private void addDependencyEntries(List<IClasspathEntry> entries, java.nio.file.Path projectPath) {
+        // Eclipse .classpath kind="lib" entries (ADR 0001).
+        // Merged alongside build-system-resolved deps; pure-Eclipse projects without a pom
+        // get full dependency resolution from .classpath alone.
+        ClasspathInfo cp = readEclipseClasspath(projectPath);
+        int classpathLibCount = 0;
+        for (java.nio.file.Path lib : cp.libPaths()) {
+            if (Files.isRegularFile(lib)) {
+                IPath eclipsePath = new Path(lib.toString());
+                entries.add(JavaCore.newLibraryEntry(eclipsePath, null, null));
+                classpathLibCount++;
+            }
+        }
+
         BuildSystem buildSystem = detectBuildSystem(projectPath);
 
         List<String> jars = switch (buildSystem) {
@@ -265,6 +312,10 @@ public class ProjectImporter {
                 IPath eclipsePath = new Path(jar);
                 entries.add(JavaCore.newLibraryEntry(eclipsePath, null, null));
             }
+        }
+
+        if (classpathLibCount > 0) {
+            log.debug("Added {} library entries from .classpath", classpathLibCount);
         }
 
         // Add compiled classes directories (Maven)
@@ -463,6 +514,111 @@ public class ProjectImporter {
             return stream.anyMatch(p -> p.toString().endsWith(".java"));
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    // ============================================================
+    // Portable project-metadata helpers (ADR 0004).
+    //
+    // Pure java.nio.file.Path + DOM/XML / java.util.jar.Manifest parsing.
+    // No JDT, OSGi, or Eclipse Workspace types in helper signatures.
+    // Designed to be lifted verbatim into a future Eclipse IDE plugin or
+    // LSP-based standalone server.
+    // ============================================================
+
+    /** pom.xml &lt;sourceDirectory&gt; / &lt;testSourceDirectory&gt; overrides. */
+    record SourceDirs(Optional<java.nio.file.Path> srcMain, Optional<java.nio.file.Path> srcTest) {
+        static SourceDirs empty() {
+            return new SourceDirs(Optional.empty(), Optional.empty());
+        }
+    }
+
+    /** Eclipse .classpath src/lib/output entries. */
+    record ClasspathInfo(List<java.nio.file.Path> srcPaths,
+                          List<java.nio.file.Path> libPaths,
+                          Optional<java.nio.file.Path> outputPath) {
+        static ClasspathInfo empty() {
+            return new ClasspathInfo(List.of(), List.of(), Optional.empty());
+        }
+    }
+
+    /**
+     * Read pom.xml &lt;build&gt;&lt;sourceDirectory&gt; and &lt;testSourceDirectory&gt;.
+     * Resolves declared paths against the pom's directory.
+     * Returns SourceDirs.empty() if pom.xml is absent, malformed, or has no overrides.
+     */
+    static SourceDirs readPomSourceDirs(java.nio.file.Path pomXml) {
+        if (!Files.isRegularFile(pomXml)) {
+            return SourceDirs.empty();
+        }
+        try {
+            DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            Document doc = builder.parse(pomXml.toFile());
+            java.nio.file.Path pomDir = pomXml.toAbsolutePath().getParent();
+            return new SourceDirs(
+                readBuildPath(doc, "sourceDirectory", pomDir),
+                readBuildPath(doc, "testSourceDirectory", pomDir)
+            );
+        } catch (Exception e) {
+            log.warn("Failed to parse pom.xml at {}: {}", pomXml, e.getMessage());
+            return SourceDirs.empty();
+        }
+    }
+
+    private static Optional<java.nio.file.Path> readBuildPath(Document doc, String elementName,
+            java.nio.file.Path pomDir) {
+        NodeList builds = doc.getElementsByTagName("build");
+        for (int i = 0; i < builds.getLength(); i++) {
+            NodeList kids = ((Element) builds.item(i)).getElementsByTagName(elementName);
+            if (kids.getLength() > 0) {
+                String text = kids.item(0).getTextContent().trim();
+                if (!text.isEmpty()) {
+                    return Optional.of(pomDir.resolve(text).normalize());
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Read Eclipse .classpath at the project root.
+     * Resolves &lt;classpathentry path="..."&gt; values against projectRoot
+     * (so "../jats/foo.jar"-style relative refs work).
+     * Returns ClasspathInfo.empty() if .classpath is absent or malformed.
+     */
+    static ClasspathInfo readEclipseClasspath(java.nio.file.Path projectRoot) {
+        java.nio.file.Path file = projectRoot.resolve(".classpath");
+        if (!Files.isRegularFile(file)) {
+            return ClasspathInfo.empty();
+        }
+        try {
+            DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            Document doc = builder.parse(file.toFile());
+            NodeList entries = doc.getElementsByTagName("classpathentry");
+            List<java.nio.file.Path> srcPaths = new ArrayList<>();
+            List<java.nio.file.Path> libPaths = new ArrayList<>();
+            Optional<java.nio.file.Path> outputPath = Optional.empty();
+            for (int i = 0; i < entries.getLength(); i++) {
+                Element entry = (Element) entries.item(i);
+                String kind = entry.getAttribute("kind");
+                String path = entry.getAttribute("path");
+                if (path.isEmpty()) {
+                    continue;
+                }
+                java.nio.file.Path resolved = projectRoot.resolve(path).normalize();
+                switch (kind) {
+                    case "src" -> srcPaths.add(resolved);
+                    case "lib" -> libPaths.add(resolved);
+                    case "output" -> outputPath = Optional.of(resolved);
+                    default -> {
+                        // "con" (containers), "var" (variables), unknown kinds: ignore.
+                    }
+                }
+            }
+            return new ClasspathInfo(srcPaths, libPaths, outputPath);
+        } catch (Exception e) {
+            log.warn("Failed to parse .classpath at {}: {}", file, e.getMessage());
+            return ClasspathInfo.empty();
         }
     }
 }

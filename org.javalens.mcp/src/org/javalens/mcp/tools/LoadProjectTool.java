@@ -45,8 +45,9 @@ public class LoadProjectTool implements Tool {
             OUTPUT: Project structure summary including packages, source files, build system
 
             Supports:
-            - Maven projects (pom.xml)
+            - Maven projects (pom.xml), including <sourceDirectory> / <testSourceDirectory> overrides
             - Gradle projects (build.gradle or build.gradle.kts)
+            - Eclipse projects (.classpath src/lib entries honored when present)
             - Plain Java projects with src/ directory
 
             WORKFLOW:
