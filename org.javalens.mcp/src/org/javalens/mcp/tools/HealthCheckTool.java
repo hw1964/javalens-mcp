@@ -1,11 +1,14 @@
 package org.javalens.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.javalens.core.IJdtService;
+import org.javalens.core.LoadedProject;
 import org.javalens.mcp.ProjectLoadingState;
 import org.javalens.mcp.models.ToolResponse;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,17 +27,28 @@ public class HealthCheckTool implements Tool {
     private final Supplier<Integer> toolCountSupplier;
     private final Supplier<ProjectLoadingState> loadingStateSupplier;
     private final Supplier<String> loadingErrorSupplier;
+    private final Supplier<IJdtService> serviceSupplier;
     private final Instant startTime;
 
     public HealthCheckTool(Supplier<Boolean> projectLoadedSupplier,
                            Supplier<Integer> toolCountSupplier,
                            Supplier<ProjectLoadingState> loadingStateSupplier,
-                           Supplier<String> loadingErrorSupplier) {
+                           Supplier<String> loadingErrorSupplier,
+                           Supplier<IJdtService> serviceSupplier) {
         this.projectLoadedSupplier = projectLoadedSupplier;
         this.toolCountSupplier = toolCountSupplier;
         this.loadingStateSupplier = loadingStateSupplier;
         this.loadingErrorSupplier = loadingErrorSupplier;
+        this.serviceSupplier = serviceSupplier;
         this.startTime = Instant.now();
+    }
+
+    /** Back-compat constructor that omits the multi-project service supplier. */
+    public HealthCheckTool(Supplier<Boolean> projectLoadedSupplier,
+                           Supplier<Integer> toolCountSupplier,
+                           Supplier<ProjectLoadingState> loadingStateSupplier,
+                           Supplier<String> loadingErrorSupplier) {
+        this(projectLoadedSupplier, toolCountSupplier, loadingStateSupplier, loadingErrorSupplier, () -> null);
     }
 
     @Override
@@ -107,6 +121,28 @@ public class HealthCheckTool implements Tool {
             }
         }
         status.put("project", projectStatus);
+
+        // Multi-project workspace summary (Sprint 10). Adds a `projects`
+        // array with one entry per loaded project plus the default key,
+        // independent of the legacy single-project status above. Empty
+        // array if no projects are loaded or the service isn't ready.
+        IJdtService service = serviceSupplier.get();
+        if (service != null) {
+            List<Map<String, Object>> projects = new ArrayList<>();
+            String defaultKey = service.defaultProjectKey().orElse(null);
+            for (LoadedProject lp : service.allProjects()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("projectKey", lp.projectKey());
+                row.put("projectPath", lp.projectRoot().toString());
+                row.put("sourceFileCount", lp.sourceFileCount());
+                row.put("isDefault", lp.projectKey().equals(defaultKey));
+                projects.add(row);
+            }
+            status.put("workspace", Map.of(
+                "projects", projects,
+                "projectCount", projects.size()
+            ));
+        }
 
         // Java/OS info
         status.put("java", Map.of(

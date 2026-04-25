@@ -183,4 +183,24 @@ public interface IJdtService {
     default Collection<LoadedProject> allProjects() {
         return List.of();
     }
+
+    /**
+     * Append a project to the workspace without clearing existing projects.
+     * The default project key is unchanged unless this is the first project
+     * registered, in which case the new project becomes the default.
+     */
+    default LoadedProject addProject(Path projectPath) throws org.eclipse.core.runtime.CoreException {
+        throw new UnsupportedOperationException(
+            "addProject is not supported by this IJdtService implementation");
+    }
+
+    /**
+     * Remove a project from the workspace. If the removed project was the
+     * default, the next available project (if any) becomes the new default.
+     *
+     * @return true if a project with the given key existed and was removed
+     */
+    default boolean removeProject(String projectKey) {
+        return false;
+    }
 }

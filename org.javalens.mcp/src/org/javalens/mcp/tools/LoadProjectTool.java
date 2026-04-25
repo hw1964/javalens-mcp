@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Load a Java project for analysis.
@@ -24,10 +25,17 @@ public class LoadProjectTool implements Tool {
 
     private static final Logger log = LoggerFactory.getLogger(LoadProjectTool.class);
 
+    private final Supplier<IJdtService> serviceSupplier;
     private final Consumer<IJdtService> serviceSetter;
 
-    public LoadProjectTool(Consumer<IJdtService> serviceSetter) {
+    public LoadProjectTool(Supplier<IJdtService> serviceSupplier, Consumer<IJdtService> serviceSetter) {
+        this.serviceSupplier = serviceSupplier;
         this.serviceSetter = serviceSetter;
+    }
+
+    /** Back-compat constructor: setter-only. New service per call. */
+    public LoadProjectTool(Consumer<IJdtService> serviceSetter) {
+        this(() -> null, serviceSetter);
     }
 
     @Override
@@ -98,12 +106,18 @@ public class LoadProjectTool implements Tool {
 
             log.info("Loading project: {}", path);
 
-            // Create and initialize the JDT service
-            JdtServiceImpl service = new JdtServiceImpl();
+            // Reuse the existing service instance if one is already in place,
+            // so add_project / remove_project / list_projects (and any
+            // already-running analysis tools) keep operating on the same
+            // workspace. The service's loadProject() implements clear-and-
+            // load semantics: it wipes any previously loaded projects and
+            // installs the new one as the default. Sprint 10 ADR Q6.
+            JdtServiceImpl service = (JdtServiceImpl) serviceSupplier.get();
+            if (service == null) {
+                service = new JdtServiceImpl();
+                serviceSetter.accept(service);
+            }
             service.loadProject(path);
-
-            // Store service for other tools to use
-            serviceSetter.accept(service);
 
             // Build response
             Map<String, Object> result = new LinkedHashMap<>();

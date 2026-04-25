@@ -4,8 +4,11 @@ import org.eclipse.equinox.app.IApplication;
 import org.eclipse.equinox.app.IApplicationContext;
 import org.javalens.mcp.protocol.McpProtocolHandler;
 import org.javalens.core.IJdtService;
+import org.javalens.mcp.tools.AddProjectTool;
 import org.javalens.mcp.tools.HealthCheckTool;
+import org.javalens.mcp.tools.ListProjectsTool;
 import org.javalens.mcp.tools.LoadProjectTool;
+import org.javalens.mcp.tools.RemoveProjectTool;
 import org.javalens.mcp.tools.SearchSymbolsTool;
 import org.javalens.mcp.tools.GoToDefinitionTool;
 import org.javalens.mcp.tools.FindReferencesTool;
@@ -191,18 +194,33 @@ public class JavaLensApplication implements IApplication {
     }
 
     private void registerTools() {
-        // Register HealthCheckTool with suppliers for project status, tool count, and loading state
+        // Register HealthCheckTool with suppliers for project status, tool
+        // count, loading state, and (Sprint 10) the multi-project workspace
+        // summary.
         toolRegistry.register(new HealthCheckTool(
             () -> jdtService != null,
             () -> toolRegistry.getToolCount(),
             () -> loadingState,
-            () -> loadingError
+            () -> loadingError,
+            () -> jdtService
         ));
 
-        // Register LoadProjectTool - stores the JdtService when a project is loaded
+        // Register LoadProjectTool — supplies the existing service so the
+        // tool can reuse it (clear-and-load on top), and installs a fresh
+        // service on first call. This is what enables add_project /
+        // remove_project / list_projects to operate on the same workspace.
         toolRegistry.register(new LoadProjectTool(
+            () -> jdtService,
             service -> this.jdtService = service
         ));
+
+        // Sprint 10 multi-project tools — orchestrated by javalens-manager
+        // for port-grouped service consolidation. AI agents can also call
+        // them, but typically don't need to: the manager pre-loads the
+        // workspace's projects on service startup.
+        toolRegistry.register(new AddProjectTool(() -> jdtService));
+        toolRegistry.register(new RemoveProjectTool(() -> jdtService));
+        toolRegistry.register(new ListProjectsTool(() -> jdtService));
 
         // Batch 1: Core Navigation Tools
         toolRegistry.register(new SearchSymbolsTool(() -> jdtService));
