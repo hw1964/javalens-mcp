@@ -18,6 +18,47 @@
     <description>Standalone JavaLens distribution</description>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                  m2e (the Eclipse / Cursor Java-extension Maven integration) runs
+                  pom plugins on every incremental workspace build. The
+                  maven-dependency-plugin:copy executions below depend on the
+                  reactor's *.launcher artifact being packaged first; m2e's
+                  incremental builder doesn't honor that ordering and fails with
+                  "Artifact has not been packaged yet" (MDEP-187).
+
+                  This pluginManagement entry is a no-op for the CLI build
+                  (`mvn clean package`) — it only configures m2e's lifecycle
+                  mapping to skip dependency:copy in the IDE.
+                -->
+                <plugin>
+                    <groupId>org.eclipse.m2e</groupId>
+                    <artifactId>lifecycle-mapping</artifactId>
+                    <version>1.0.0</version>
+                    <configuration>
+                        <lifecycleMappingMetadata>
+                            <pluginExecutions>
+                                <pluginExecution>
+                                    <pluginExecutionFilter>
+                                        <groupId>org.apache.maven.plugins</groupId>
+                                        <artifactId>maven-dependency-plugin</artifactId>
+                                        <versionRange>[2.0,)</versionRange>
+                                        <goals>
+                                            <goal>copy</goal>
+                                        </goals>
+                                    </pluginExecutionFilter>
+                                    <action>
+                                        <ignore />
+                                    </action>
+                                </pluginExecution>
+                            </pluginExecutions>
+                        </lifecycleMappingMetadata>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
         <plugins>
             <plugin>
                 <groupId>org.eclipse.tycho</groupId>
