@@ -72,6 +72,15 @@ public class JdtServiceImpl implements IJdtService {
     private final Map<String, LoadedProject> projectsByKey = new ConcurrentHashMap<>();
     private volatile String defaultProjectKey;
 
+    // Workspace-scoped SearchService — searches across all loaded projects.
+    // Lazily built on first access, invalidated whenever the project map
+    // changes (addProject / removeProject / loadProject). With a single
+    // project loaded the scope contains that one project; behavior is
+    // identical to the per-project SearchService. With N projects, search
+    // sees all N classpaths at once — the expected behavior under Sprint
+    // 10's port-grouped service consolidation.
+    private volatile SearchService workspaceSearchService;
+
     public JdtServiceImpl() {
         this.workspaceManager = new WorkspaceManager();
         this.projectImporter = new ProjectImporter();
@@ -107,6 +116,7 @@ public class JdtServiceImpl implements IJdtService {
         // "wipe and load one", per Sprint 10 ADR Q6.
         projectsByKey.clear();
         defaultProjectKey = null;
+        workspaceSearchService = null;
 
         LoadedProject loaded = loadInternal(path);
         defaultProjectKey = loaded.projectKey();
@@ -132,6 +142,7 @@ public class JdtServiceImpl implements IJdtService {
     public LoadedProject addProject(Path path) throws CoreException {
         log.info("Adding project to workspace: {}", path);
         LoadedProject loaded = loadInternal(path);
+        workspaceSearchService = null;  // scope changed — rebuild on next access
         if (defaultProjectKey == null) {
             // First project ever — promote to default so single-project
             // tools have something to read.
@@ -154,6 +165,7 @@ public class JdtServiceImpl implements IJdtService {
         if (removed == null) {
             return false;
         }
+        workspaceSearchService = null;  // scope changed — rebuild on next access
         log.info("Removed project '{}' from workspace", projectKey);
         if (projectKey.equals(defaultProjectKey)) {
             // Pick a new default deterministically: the first remaining key
@@ -303,7 +315,33 @@ public class JdtServiceImpl implements IJdtService {
 
     @Override
     public SearchService getSearchService() {
-        return searchService;
+        // Sprint 10: prefer the workspace-scoped SearchService so queries
+        // span all loaded projects. Falls back to the legacy per-project
+        // service when no projects are loaded yet (e.g., between the
+        // service constructor and the first loadProject() / addProject()).
+        SearchService workspace = getOrBuildWorkspaceSearchService();
+        return workspace != null ? workspace : searchService;
+    }
+
+    /**
+     * Lazily build a SearchService whose scope spans every currently loaded
+     * project. Recomputed only when the cache is null (set by addProject /
+     * removeProject / loadProject mutations).
+     */
+    private SearchService getOrBuildWorkspaceSearchService() {
+        SearchService cached = workspaceSearchService;
+        if (cached != null || projectsByKey.isEmpty()) {
+            return cached;
+        }
+        synchronized (this) {
+            if (workspaceSearchService == null && !projectsByKey.isEmpty()) {
+                IJavaProject[] all = projectsByKey.values().stream()
+                    .map(LoadedProject::javaProject)
+                    .toArray(IJavaProject[]::new);
+                workspaceSearchService = new SearchService(all);
+            }
+        }
+        return workspaceSearchService;
     }
 
     public Instant getLoadedAt() {

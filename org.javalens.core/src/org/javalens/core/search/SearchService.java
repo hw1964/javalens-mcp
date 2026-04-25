@@ -48,6 +48,30 @@ public class SearchService {
     }
 
     /**
+     * Workspace-scope constructor (Sprint 10): builds a SearchService whose
+     * search scope spans multiple projects. Used by JdtServiceImpl to expose a
+     * cross-project search capability when more than one project is loaded
+     * into the workspace.
+     *
+     * <p>The first project in the array is treated as the "representative"
+     * (returned by {@link #getProject()} for back-compat), but search calls
+     * see all projects in scope.
+     *
+     * @param projects projects to include in search scope; must be non-empty
+     */
+    public SearchService(IJavaProject[] projects) {
+        if (projects == null || projects.length == 0) {
+            throw new IllegalArgumentException(
+                "Workspace SearchService requires at least one project");
+        }
+        this.project = projects[0];
+        this.engine = new SearchEngine();
+        this.scope = SearchEngine.createJavaSearchScope((IJavaElement[]) projects);
+        log.info("SearchService initialized with workspace scope of {} project(s)",
+            projects.length);
+    }
+
+    /**
      * Search for symbols matching a pattern.
      *
      * @param pattern Glob pattern (e.g., "Order*", "*Service")

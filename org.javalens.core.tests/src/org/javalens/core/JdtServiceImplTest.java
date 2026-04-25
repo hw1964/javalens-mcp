@@ -314,4 +314,51 @@ class JdtServiceImplTest {
         assertEquals(before, service.allProjects().size(),
             "Unknown key should not perturb the project map");
     }
+
+    @Test
+    @DisplayName("getSearchService returns a workspace-scoped service spanning all loaded projects")
+    void getSearchService_spansAllLoadedProjects() throws Exception {
+        // simple-maven (loaded in @BeforeEach) has classes Calculator,
+        // HelloWorld, UserService. simple-maven-b adds HelloB.
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        service.addProject(pathB);
+
+        org.javalens.core.search.SearchService search = service.getSearchService();
+        assertNotNull(search, "Workspace search service should be available with 2 projects loaded");
+
+        // Pattern match for both projects' classes simultaneously.
+        java.util.List<org.eclipse.jdt.core.search.SearchMatch> hellos =
+            search.searchSymbols("Hello*", null, 100);
+
+        boolean foundA = hellos.stream().anyMatch(m ->
+            m.getElement() instanceof org.eclipse.jdt.core.IType t
+                && "HelloWorld".equals(t.getElementName()));
+        boolean foundB = hellos.stream().anyMatch(m ->
+            m.getElement() instanceof org.eclipse.jdt.core.IType t
+                && "HelloB".equals(t.getElementName()));
+
+        assertTrue(foundA, "Workspace search should still find HelloWorld in simple-maven");
+        assertTrue(foundB, "Workspace search should also find HelloB in simple-maven-b — cross-project");
+    }
+
+    @Test
+    @DisplayName("workspace SearchService is rebuilt after removeProject")
+    void getSearchService_rebuildsAfterRemove() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject second = service.addProject(pathB);
+        // Sanity: HelloB is findable while both projects are loaded.
+        boolean foundB = service.getSearchService().searchSymbols("HelloB", null, 10)
+            .stream().anyMatch(m -> m.getElement() instanceof org.eclipse.jdt.core.IType t
+                && "HelloB".equals(t.getElementName()));
+        assertTrue(foundB, "HelloB should be findable while simple-maven-b is loaded");
+
+        service.removeProject(second.projectKey());
+
+        // After removal, HelloB should no longer be in the workspace scope.
+        boolean stillFoundB = service.getSearchService().searchSymbols("HelloB", null, 10)
+            .stream().anyMatch(m -> m.getElement() instanceof org.eclipse.jdt.core.IType t
+                && "HelloB".equals(t.getElementName()));
+        assertFalse(stillFoundB,
+            "After removeProject, the workspace scope must shrink to exclude the removed project");
+    }
 }
