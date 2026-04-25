@@ -7,7 +7,9 @@ import org.eclipse.jdt.core.IType;
 import org.javalens.core.search.SearchService;
 
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
@@ -146,4 +148,39 @@ public interface IJdtService {
      * @return List of source file paths
      */
     List<Path> getAllJavaFiles();
+
+    // ============================================================
+    // Multi-project workspace API (Sprint 10).
+    //
+    // Sprint 10 introduces multi-project workspaces: a single javalens
+    // process holds N projects loaded simultaneously, all sharing one
+    // Eclipse workspace. Tools that pre-date Sprint 10 keep working via
+    // the existing single-project methods above; those methods route to
+    // the "default project", which is the most recently loaded project
+    // (set by load_project) or the first added project if load_project
+    // has not been called.
+    //
+    // Default methods provide a safe single-project fallback so
+    // alternative IJdtService implementations don't break.
+    // ============================================================
+
+    /** Project key of the default project (the one returned by single-project getters), if any. */
+    default Optional<String> defaultProjectKey() {
+        return Optional.empty();
+    }
+
+    /** Look up a loaded project by its project key. */
+    default Optional<LoadedProject> getProject(String projectKey) {
+        return Optional.empty();
+    }
+
+    /** Keys of all currently loaded projects. */
+    default Collection<String> projectKeys() {
+        return List.of();
+    }
+
+    /** All currently loaded projects. */
+    default Collection<LoadedProject> allProjects() {
+        return List.of();
+    }
 }

@@ -242,4 +242,76 @@ class JdtServiceImplTest {
         assertTrue(root.toString().contains("simple-maven"),
             "Should contain project name");
     }
+
+    // ========== Sprint 10: multi-project workspace ==========
+
+    @Test
+    @DisplayName("loadProject sets defaultProjectKey and registers single entry")
+    void loadProject_setsDefaultAndRegisters() {
+        // helper.loadProject already called loadProject in @BeforeEach.
+        assertTrue(service.defaultProjectKey().isPresent(),
+            "load_project should set the default key");
+        assertEquals(1, service.allProjects().size(),
+            "Single load_project => one entry in the project map");
+        String key = service.defaultProjectKey().get();
+        assertTrue(service.getProject(key).isPresent(),
+            "Default key should be addressable in getProject(key)");
+    }
+
+    @Test
+    @DisplayName("loadProject second time clears the previous project (clear-and-load semantics)")
+    void loadProject_clearsPrevious() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        service.loadProject(pathB);
+
+        assertEquals(1, service.allProjects().size(),
+            "load_project replaces, never appends");
+        String key = service.defaultProjectKey().orElseThrow();
+        assertTrue(service.getProject(key).orElseThrow()
+                .projectRoot().toString().contains("simple-maven-b"),
+            "Default project should be the second load");
+    }
+
+    @Test
+    @DisplayName("addProject appends without clearing or changing the default key")
+    void addProject_appendsWithoutClearing() throws Exception {
+        String originalDefault = service.defaultProjectKey().orElseThrow();
+
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject loaded = service.addProject(pathB);
+
+        assertEquals(2, service.allProjects().size(),
+            "addProject should append without clearing");
+        assertEquals(originalDefault, service.defaultProjectKey().orElseThrow(),
+            "addProject must not change the default key");
+        assertTrue(service.getProject(loaded.projectKey()).isPresent(),
+            "Newly added project should be addressable by its key");
+        assertNotEquals(originalDefault, loaded.projectKey(),
+            "New project should have a distinct key");
+    }
+
+    @Test
+    @DisplayName("removeProject removes the entry and reassigns default if needed")
+    void removeProject_reassignsDefault() throws Exception {
+        String firstKey = service.defaultProjectKey().orElseThrow();
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject second = service.addProject(pathB);
+
+        // Remove the default — the remaining project becomes the new default.
+        boolean removed = service.removeProject(firstKey);
+        assertTrue(removed, "Default project should remove successfully");
+        assertEquals(1, service.allProjects().size());
+        assertEquals(second.projectKey(), service.defaultProjectKey().orElseThrow(),
+            "Removing the default should promote the next available key");
+    }
+
+    @Test
+    @DisplayName("removeProject returns false for unknown key and does not change state")
+    void removeProject_unknownKeyIsNoOp() {
+        int before = service.allProjects().size();
+        boolean removed = service.removeProject("not-a-real-key");
+        assertFalse(removed, "Unknown key should return false");
+        assertEquals(before, service.allProjects().size(),
+            "Unknown key should not perturb the project map");
+    }
 }
