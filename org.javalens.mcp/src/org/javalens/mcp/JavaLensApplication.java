@@ -4,6 +4,7 @@ import org.eclipse.equinox.app.IApplication;
 import org.eclipse.equinox.app.IApplicationContext;
 import org.javalens.mcp.protocol.McpProtocolHandler;
 import org.javalens.core.IJdtService;
+import org.javalens.core.workspace.WorkspaceFileWatcher;
 import org.javalens.mcp.tools.AddProjectTool;
 import org.javalens.mcp.tools.HealthCheckTool;
 import org.javalens.mcp.tools.ListProjectsTool;
@@ -101,6 +102,7 @@ public class JavaLensApplication implements IApplication {
     private volatile String loadingError = null;
     private ToolRegistry toolRegistry;
     private McpProtocolHandler protocolHandler;
+    private volatile WorkspaceFileWatcher workspaceWatcher;
 
     // Static instance for loading state access by tools
     private static volatile JavaLensApplication instance;
@@ -136,16 +138,69 @@ public class JavaLensApplication implements IApplication {
 
         log.info("Registered {} tools", toolRegistry.getToolCount());
 
-        // Auto-load project from environment variable asynchronously
-        // This allows the MCP server to respond to initialize immediately
-        // while the project loads in the background
-        CompletableFuture.runAsync(this::autoLoadProjectFromEnv);
+        // Sprint 10 v1.4.0: prefer workspace.json in the JDT data dir as the
+        // source of truth for what to load. The manager (javalens-manager)
+        // writes this file. Fall back to the legacy JAVA_PROJECT_PATH env
+        // var when workspace.json is absent (back-compat for direct manual
+        // launches without the manager).
+        CompletableFuture.runAsync(this::autoLoadProjects);
 
         // Run the main message loop (starts immediately, doesn't wait for project load)
         runMessageLoop();
 
         log.info("JavaLens MCP Server stopped");
         return IApplication.EXIT_OK;
+    }
+
+    /**
+     * Sprint 10 v1.4.0: load projects from {@code workspace.json} in the
+     * Eclipse {@code -data} directory if present, otherwise fall back to
+     * {@code JAVA_PROJECT_PATH}. This runs asynchronously so the MCP server
+     * can respond to {@code initialize} immediately while loading proceeds.
+     */
+    private void autoLoadProjects() {
+        Path dataDir = resolveDataDir();
+        if (dataDir != null) {
+            Path workspaceJson = dataDir.resolve("workspace.json");
+            if (Files.isRegularFile(workspaceJson)) {
+                loadFromWorkspaceJson(dataDir);
+                return;
+            }
+        }
+        // Fall back to single-project env-var path.
+        autoLoadProjectFromEnv();
+    }
+
+    private Path resolveDataDir() {
+        // Use the OSGi-defined system property rather than Platform.getInstanceLocation().getURL()
+        // — the latter is a Tycho-restricted API. osgi.instance.area is set by the framework to
+        // the URL of the -data dir and is the public way to read it.
+        try {
+            String area = System.getProperty("osgi.instance.area");
+            if (area == null || area.isBlank()) return null;
+            return Path.of(java.net.URI.create(area));
+        } catch (Exception e) {
+            log.warn("Failed to resolve Eclipse instance area: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void loadFromWorkspaceJson(Path dataDir) {
+        log.info("Loading workspace from {}", dataDir.resolve("workspace.json"));
+        loadingState = ProjectLoadingState.LOADING;
+        try {
+            JdtServiceImpl service = new JdtServiceImpl();
+            WorkspaceFileWatcher watcher = new WorkspaceFileWatcher(dataDir, service);
+            watcher.start();  // synchronous initial load + arm watcher thread
+            this.jdtService = service;
+            this.workspaceWatcher = watcher;
+            loadingState = ProjectLoadingState.LOADED;
+            log.info("Workspace loaded; watcher armed for live updates");
+        } catch (Exception e) {
+            log.error("Failed to load workspace from workspace.json: {}", e.getMessage(), e);
+            loadingState = ProjectLoadingState.FAILED;
+            loadingError = e.getMessage();
+        }
     }
 
     /**
@@ -350,5 +405,10 @@ public class JavaLensApplication implements IApplication {
     public void stop() {
         log.info("Stop requested");
         running = false;
+        WorkspaceFileWatcher watcher = workspaceWatcher;
+        if (watcher != null) {
+            watcher.close();
+            workspaceWatcher = null;
+        }
     }
 }
