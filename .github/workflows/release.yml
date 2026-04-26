@@ -33,13 +33,24 @@ jobs:
         zip -r ../../../../javalens-${{ github.ref_name }}.zip javalens-${{ github.ref_name }}
         tar -czvf ../../../../javalens-${{ github.ref_name }}.tar.gz javalens-${{ github.ref_name }}
 
+    - name: Pick release body
+      id: notes
+      run: |
+        notes_file="docs/release-notes/${{ github.ref_name }}.md"
+        if [ -f "$notes_file" ]; then
+          echo "body_path=$notes_file" >> "$GITHUB_OUTPUT"
+        else
+          echo "body_path=" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
           org.javalens.product/target/products/javalens-${{ github.ref_name }}.zip
           org.javalens.product/target/products/javalens-${{ github.ref_name }}.tar.gz
-        generate_release_notes: true
+        body_path: ${{ steps.notes.outputs.body_path }}
+        generate_release_notes: ${{ steps.notes.outputs.body_path == '' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
