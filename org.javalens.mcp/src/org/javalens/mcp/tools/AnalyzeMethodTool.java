@@ -102,7 +102,7 @@ public class AnalyzeMethodTool extends AbstractTool {
 
         schema.put("properties", properties);
         schema.put("required", List.of("filePath", "line", "column"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

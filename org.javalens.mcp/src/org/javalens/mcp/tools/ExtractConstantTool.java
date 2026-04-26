@@ -102,7 +102,7 @@ public class ExtractConstantTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath", "startLine", "startColumn", "endLine", "endColumn", "constantName"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

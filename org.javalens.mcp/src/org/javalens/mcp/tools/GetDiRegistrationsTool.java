@@ -90,7 +90,7 @@ public class GetDiRegistrationsTool extends AbstractTool {
         schema.put("properties", properties);
         schema.put("required", List.of());
 
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

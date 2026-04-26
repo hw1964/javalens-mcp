@@ -72,7 +72,7 @@ public class GetDocumentSymbolsTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

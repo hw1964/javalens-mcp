@@ -88,7 +88,7 @@ public class GetDependencyGraphTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("scope", "name"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

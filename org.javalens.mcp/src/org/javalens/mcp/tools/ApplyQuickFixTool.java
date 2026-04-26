@@ -84,7 +84,7 @@ public class ApplyQuickFixTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath", "fixId"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

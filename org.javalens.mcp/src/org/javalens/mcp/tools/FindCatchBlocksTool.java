@@ -68,7 +68,7 @@ public class FindCatchBlocksTool extends AbstractTool {
         schema.put("properties", properties);
         schema.put("required", List.of("exceptionType"));
 
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

@@ -376,18 +376,29 @@ public class JdtServiceImpl implements IJdtService {
 
     @Override
     public ICompilationUnit getCompilationUnit(Path filePath) {
-        if (javaProject == null) {
-            return null;
+        // Try the default project first (fast path, also the only path
+        // pre-Sprint 10), then fan out across the rest of the workspace
+        // so a tool call without projectKey can resolve files in any
+        // loaded project — required for the single-workspace mode where
+        // one javalens process holds N projects.
+        if (javaProject != null) {
+            ICompilationUnit cu = lookupCompilationUnit(javaProject, filePath);
+            if (cu != null) return cu;
         }
+        for (LoadedProject other : projectsByKey.values()) {
+            if (other.javaProject() == javaProject) continue; // already tried
+            ICompilationUnit cu = lookupCompilationUnit(other.javaProject(), filePath);
+            if (cu != null) return cu;
+        }
+        log.debug("Compilation unit not found for: {}", filePath);
+        return null;
+    }
 
+    private static ICompilationUnit lookupCompilationUnit(IJavaProject jp, Path filePath) {
+        if (jp == null) return null;
         try {
-            // Convert path to a format we can search for
             String pathStr = filePath.toString().replace('\\', '/');
-
-            // Extract the package-qualified class path (e.g., dev/javalens/tools/SearchSymbolsTool.java)
             String classPath = pathStr;
-
-            // Remove common source prefixes to get the class path
             String[] sourcePrefixes = {"src/main/java/", "src/test/java/", "src/main/kotlin/", "src/test/kotlin/", "src/"};
             for (String prefix : sourcePrefixes) {
                 if (pathStr.contains(prefix)) {
@@ -396,40 +407,25 @@ public class JdtServiceImpl implements IJdtService {
                     break;
                 }
             }
-
-            // Convert path to package + class name
             String withoutExt = classPath.replace(".java", "");
             String qualifiedName = withoutExt.replace('/', '.');
+            IType type = jp.findType(qualifiedName);
+            if (type != null) return type.getCompilationUnit();
 
-            // Try to find the type by qualified name
-            IType type = javaProject.findType(qualifiedName);
-            if (type != null) {
-                return type.getCompilationUnit();
-            }
-
-            // Fallback: search through all source folders
-            for (IPackageFragmentRoot root : javaProject.getPackageFragmentRoots()) {
+            for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
                 if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
-                    // Extract package name from classPath
                     int lastSlash = classPath.lastIndexOf('/');
                     String packageName = lastSlash > 0 ? classPath.substring(0, lastSlash).replace('/', '.') : "";
                     String className = lastSlash > 0 ? classPath.substring(lastSlash + 1) : classPath;
-
                     IPackageFragment pkg = root.getPackageFragment(packageName);
                     if (pkg != null && pkg.exists()) {
                         ICompilationUnit cu = pkg.getCompilationUnit(className);
-                        if (cu != null && cu.exists()) {
-                            return cu;
-                        }
+                        if (cu != null && cu.exists()) return cu;
                     }
                 }
             }
-
-            log.debug("Compilation unit not found for: {}", filePath);
             return null;
-
         } catch (Exception e) {
-            log.warn("Error getting compilation unit for {}: {}", filePath, e.getMessage());
             return null;
         }
     }
@@ -491,37 +487,40 @@ public class JdtServiceImpl implements IJdtService {
 
     @Override
     public IType findType(String typeName) {
-        if (javaProject == null || typeName == null || typeName.isBlank()) {
-            return null;
+        if (typeName == null || typeName.isBlank()) return null;
+        // Default project first, then the rest of the workspace.
+        if (javaProject != null) {
+            IType type = lookupType(javaProject, typeName);
+            if (type != null) return type;
         }
+        for (LoadedProject other : projectsByKey.values()) {
+            if (other.javaProject() == javaProject) continue;
+            IType type = lookupType(other.javaProject(), typeName);
+            if (type != null) return type;
+        }
+        return null;
+    }
 
+    private static IType lookupType(IJavaProject jp, String typeName) {
+        if (jp == null) return null;
         try {
-            // First try as fully qualified name
-            IType type = javaProject.findType(typeName);
-            if (type != null) {
-                return type;
-            }
-
-            // Try searching for simple name in all packages
-            for (IPackageFragmentRoot root : javaProject.getPackageFragmentRoots()) {
+            IType type = jp.findType(typeName);
+            if (type != null) return type;
+            for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
                 if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
                     for (IJavaElement child : root.getChildren()) {
                         if (child instanceof IPackageFragment pkg) {
                             for (ICompilationUnit cu : pkg.getCompilationUnits()) {
                                 for (IType t : cu.getTypes()) {
-                                    if (t.getElementName().equals(typeName)) {
-                                        return t;
-                                    }
+                                    if (t.getElementName().equals(typeName)) return t;
                                 }
                             }
                         }
                     }
                 }
             }
-
             return null;
         } catch (JavaModelException e) {
-            log.warn("Error finding type {}: {}", typeName, e.getMessage());
             return null;
         }
     }
@@ -626,23 +625,35 @@ public class JdtServiceImpl implements IJdtService {
 
     @Override
     public List<Path> getAllJavaFiles() {
+        // Aggregate across every loaded project so workspace-wide listings
+        // (find_unused_code etc.) see all .java files in single-workspace
+        // mode. Falls back to the legacy javaProject when projectsByKey is
+        // empty (transient state during construction).
         List<Path> files = new ArrayList<>();
-
-        if (javaProject == null) {
+        Collection<LoadedProject> loaded = projectsByKey.values();
+        if (loaded.isEmpty()) {
+            if (javaProject != null) {
+                collectFilesFrom(javaProject, files);
+            }
             return files;
         }
+        for (LoadedProject p : loaded) {
+            collectFilesFrom(p.javaProject(), files);
+        }
+        return files;
+    }
 
+    private void collectFilesFrom(IJavaProject jp, List<Path> files) {
+        if (jp == null) return;
         try {
-            for (IPackageFragmentRoot root : javaProject.getPackageFragmentRoots()) {
+            for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
                 if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
                     collectJavaFiles(root, files);
                 }
             }
         } catch (JavaModelException e) {
-            log.warn("Error getting Java files: {}", e.getMessage());
+            log.warn("Error getting Java files for {}: {}", jp.getElementName(), e.getMessage());
         }
-
-        return files;
     }
 
     private void collectJavaFiles(IPackageFragmentRoot root, List<Path> files) throws JavaModelException {

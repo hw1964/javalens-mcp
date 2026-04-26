@@ -81,7 +81,7 @@ public class GetTypeHierarchyTool extends AbstractTool {
                 "description", "Maximum depth of hierarchy to return (default 10)"
             )
         ));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

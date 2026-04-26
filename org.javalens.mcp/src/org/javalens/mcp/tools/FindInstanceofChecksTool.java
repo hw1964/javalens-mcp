@@ -68,7 +68,7 @@ public class FindInstanceofChecksTool extends AbstractTool {
         schema.put("properties", properties);
         schema.put("required", List.of("typeName"));
 
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

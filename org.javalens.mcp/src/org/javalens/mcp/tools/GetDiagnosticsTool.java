@@ -74,7 +74,7 @@ public class GetDiagnosticsTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of());
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

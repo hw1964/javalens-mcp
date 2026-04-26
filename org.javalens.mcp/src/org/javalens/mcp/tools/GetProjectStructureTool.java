@@ -61,7 +61,7 @@ public class GetProjectStructureTool extends AbstractTool {
                 "description", "Maximum package depth to show (default 10)"
             )
         ));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

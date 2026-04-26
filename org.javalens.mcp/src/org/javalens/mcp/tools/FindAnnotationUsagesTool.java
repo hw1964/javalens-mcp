@@ -68,7 +68,7 @@ public class FindAnnotationUsagesTool extends AbstractTool {
         schema.put("properties", properties);
         schema.put("required", List.of("annotation"));
 
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

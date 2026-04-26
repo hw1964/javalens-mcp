@@ -83,7 +83,7 @@ public class SearchSymbolsTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("query"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

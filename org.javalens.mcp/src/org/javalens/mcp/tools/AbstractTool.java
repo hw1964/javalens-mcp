@@ -6,6 +6,8 @@ import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.search.SearchMatch;
 import org.javalens.core.IJdtService;
+import org.javalens.core.LoadedProject;
+import org.javalens.core.ScopedJdtService;
 import org.javalens.core.exceptions.ProjectNotLoadedException;
 import org.javalens.mcp.JavaLensApplication;
 import org.javalens.mcp.ProjectLoadingState;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -95,7 +98,51 @@ public abstract class AbstractTool implements Tool {
                 default -> ToolResponse.projectNotLoaded();
             };
         }
+
+        // Sprint 10: optional projectKey scoping. When the agent passes
+        // projectKey on a tool call, narrow the service view to just that
+        // project so getSearchService() / getJavaProject() / file lookups
+        // operate in single-project scope. Absent: cross-project default.
+        String projectKey = null;
+        if (arguments != null && arguments.has("projectKey") && !arguments.get("projectKey").isNull()) {
+            String raw = arguments.get("projectKey").asText();
+            if (raw != null && !raw.isBlank()) {
+                projectKey = raw;
+            }
+        }
+        if (projectKey != null) {
+            Optional<LoadedProject> scoped = service.getProject(projectKey);
+            if (scoped.isEmpty()) {
+                return ToolResponse.invalidParameter(
+                    "projectKey",
+                    "Unknown projectKey '" + projectKey + "'. Use list_projects to see available keys.");
+            }
+            return executeWithService(new ScopedJdtService(service, scoped.get()), arguments);
+        }
+
         return executeWithService(service, arguments);
+    }
+
+    /**
+     * Decorate a tool's input schema with an optional {@code projectKey}
+     * property documenting the Sprint 10 multi-project scoping convention.
+     * Tools call this from {@link #getInputSchema()} so the parameter shows
+     * up in the MCP {@code tools/list} response.
+     *
+     * <p>Returns a fresh map; the original is not mutated. Works for tools
+     * whose properties map is immutable (e.g. {@code Map.of(...)}).
+     */
+    @SuppressWarnings("unchecked")
+    protected static Map<String, Object> withProjectKey(Map<String, Object> schema) {
+        Map<String, Object> wrapped = new LinkedHashMap<>(schema);
+        Map<String, Object> oldProps = (Map<String, Object>) wrapped.getOrDefault("properties", Map.of());
+        Map<String, Object> newProps = new LinkedHashMap<>(oldProps);
+        newProps.putIfAbsent("projectKey", Map.of(
+            "type", "string",
+            "description", "Optional. Restrict the query to a single loaded project (see list_projects). Omit to search all projects in the workspace."
+        ));
+        wrapped.put("properties", newProps);
+        return wrapped;
     }
 
     /**

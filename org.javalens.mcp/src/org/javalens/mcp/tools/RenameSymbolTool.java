@@ -99,7 +99,7 @@ public class RenameSymbolTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath", "line", "column", "newName"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

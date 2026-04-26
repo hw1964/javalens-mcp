@@ -65,7 +65,7 @@ public class GetClasspathInfoTool extends AbstractTool {
                 "description", "Include container entries like JRE (default true)"
             )
         ));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

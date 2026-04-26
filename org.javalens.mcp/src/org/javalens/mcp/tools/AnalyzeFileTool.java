@@ -81,7 +81,7 @@ public class AnalyzeFileTool extends AbstractTool {
 
         schema.put("properties", properties);
         schema.put("required", List.of("filePath"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

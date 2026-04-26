@@ -74,7 +74,7 @@ public class GetTypeMembersTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("typeName"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

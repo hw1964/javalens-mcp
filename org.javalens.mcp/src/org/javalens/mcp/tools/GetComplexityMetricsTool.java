@@ -94,7 +94,7 @@ public class GetComplexityMetricsTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

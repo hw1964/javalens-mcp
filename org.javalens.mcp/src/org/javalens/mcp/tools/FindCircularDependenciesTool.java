@@ -74,7 +74,7 @@ public class FindCircularDependenciesTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of());
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

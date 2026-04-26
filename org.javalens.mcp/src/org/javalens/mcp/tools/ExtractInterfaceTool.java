@@ -97,7 +97,7 @@ public class ExtractInterfaceTool extends AbstractTool {
             )
         ));
         schema.put("required", List.of("filePath", "line", "column", "interfaceName"));
-        return schema;
+        return withProjectKey(schema);
     }
 
     @Override

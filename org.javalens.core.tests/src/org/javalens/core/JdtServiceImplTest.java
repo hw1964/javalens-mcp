@@ -361,4 +361,104 @@ class JdtServiceImplTest {
         assertFalse(stillFoundB,
             "After removeProject, the workspace scope must shrink to exclude the removed project");
     }
+
+    // ========== Sprint 10 A.4.2: cross-project lookups + ScopedJdtService ==========
+
+    @Test
+    @DisplayName("getCompilationUnit finds files in any loaded project, not just the default")
+    void getCompilationUnit_crossProjectLookup() throws Exception {
+        // Default = simple-maven. Add simple-maven-b. Look up a file that
+        // only exists in simple-maven-b — must succeed without projectKey.
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        service.addProject(pathB);
+
+        Path helloBPath = pathB.resolve("src/main/java/com/exampleb/HelloB.java");
+        ICompilationUnit cu = service.getCompilationUnit(helloBPath);
+        assertNotNull(cu, "Default service should find files across all loaded projects");
+        assertEquals("HelloB.java", cu.getElementName());
+    }
+
+    @Test
+    @DisplayName("findType resolves types in any loaded project, not just the default")
+    void findType_crossProjectLookup() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        service.addProject(pathB);
+
+        IType helloB = service.findType("com.exampleb.HelloB");
+        assertNotNull(helloB, "Default service should find types across all loaded projects");
+        IType helloWorld = service.findType("com.example.HelloWorld");
+        assertNotNull(helloWorld, "Default-project type still resolvable");
+    }
+
+    @Test
+    @DisplayName("getAllJavaFiles aggregates files from every loaded project")
+    void getAllJavaFiles_aggregatesAcrossProjects() throws Exception {
+        int beforeAdd = service.getAllJavaFiles().size();
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        service.addProject(pathB);
+        int afterAdd = service.getAllJavaFiles().size();
+        assertTrue(afterAdd > beforeAdd,
+            "After addProject the file aggregate should grow (got " + beforeAdd + " -> " + afterAdd + ")");
+    }
+
+    @Test
+    @DisplayName("ScopedJdtService scopes search to a single project")
+    void scopedJdtService_searchScopesDownToOneProject() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject second = service.addProject(pathB);
+
+        ScopedJdtService scoped = new ScopedJdtService(service, second);
+        // Pattern that matches both HelloWorld (in simple-maven) and HelloB
+        // (in simple-maven-b). Scoped should only see simple-maven-b.
+        java.util.List<org.eclipse.jdt.core.search.SearchMatch> hits =
+            scoped.getSearchService().searchSymbols("Hello*", null, 100);
+
+        boolean foundA = hits.stream().anyMatch(m ->
+            m.getElement() instanceof IType t && "HelloWorld".equals(t.getElementName()));
+        boolean foundB = hits.stream().anyMatch(m ->
+            m.getElement() instanceof IType t && "HelloB".equals(t.getElementName()));
+
+        assertFalse(foundA, "Scope-down should NOT see HelloWorld (lives in simple-maven)");
+        assertTrue(foundB, "Scope-down should see HelloB (lives in simple-maven-b)");
+    }
+
+    @Test
+    @DisplayName("ScopedJdtService getCompilationUnit/findType reject out-of-scope files and types")
+    void scopedJdtService_rejectsOutOfScopeLookups() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject second = service.addProject(pathB);
+
+        ScopedJdtService scopedB = new ScopedJdtService(service, second);
+
+        // In-scope: HelloB resolves.
+        Path helloBPath = pathB.resolve("src/main/java/com/exampleb/HelloB.java");
+        assertNotNull(scopedB.getCompilationUnit(helloBPath),
+            "In-scope file lookup should succeed");
+        assertNotNull(scopedB.findType("com.exampleb.HelloB"),
+            "In-scope type lookup should succeed");
+
+        // Out-of-scope: simple-maven's HelloWorld must NOT resolve through
+        // the scoped view (even though it would resolve through the
+        // unscoped service).
+        Path helloAPath = projectPath.resolve("src/main/java/com/example/HelloWorld.java");
+        assertNull(scopedB.getCompilationUnit(helloAPath),
+            "Out-of-scope file lookup should return null");
+        assertNull(scopedB.findType("com.example.HelloWorld"),
+            "Out-of-scope type lookup should return null");
+    }
+
+    @Test
+    @DisplayName("ScopedJdtService getJavaProject / getProjectRoot / getPathUtils point at the scoped project")
+    void scopedJdtService_returnsScopedProjectMetadata() throws Exception {
+        Path pathB = helper.getFixturePath("simple-maven-b");
+        LoadedProject second = service.addProject(pathB);
+
+        ScopedJdtService scoped = new ScopedJdtService(service, second);
+        assertEquals(second.javaProject(), scoped.getJavaProject());
+        assertEquals(second.projectRoot(), scoped.getProjectRoot());
+        assertEquals(second.pathUtils(), scoped.getPathUtils());
+        // Workspace queries still delegate.
+        assertEquals(service.allProjects().size(), scoped.allProjects().size());
+        assertEquals(service.defaultProjectKey(), scoped.defaultProjectKey());
+    }
 }
