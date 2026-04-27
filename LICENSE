@@ -1,6 +1,14 @@
 MIT License
 
-Copyright (c) 2025 Peter Zalutski
+Copyright (c) 2025 Peter Zalutski (original work, v1.0–v1.2)
+Copyright (c) 2026 Harald Wegner (fork additions, v1.3.0+)
+
+The fork at https://github.com/hw1964/javalens-mcp extends the original
+work with: multi-project workspace and workspace-scoped search (v1.3.0),
+file-watch live workspace updates (v1.4.0), Tycho-aware Maven detection,
+workspace bundle pool (Require-Bundle resolution), Gradle Tooling API
+integration, parametric tool consolidation, and JDT-LTK refactoring
+foundation (v1.5.0). See docs/release-notes/ for full history.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

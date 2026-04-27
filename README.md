@@ -1,130 +1,130 @@
-# JavaLens: AI-First Code Analysis for Java
+# JavaLens (hw1964 fork) — IDE-grade code analysis for Java agents
 
-[![GitHub release](https://img.shields.io/github/v/release/pzalutski-pixel/javalens-mcp)](https://github.com/pzalutski-pixel/javalens-mcp/releases)
+[![GitHub release](https://img.shields.io/github/v/release/hw1964/javalens-mcp)](https://github.com/hw1964/javalens-mcp/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 
-An MCP server providing 63 semantic analysis tools for Java, built directly on Eclipse JDT for compiler-accurate code understanding.
+An MCP server that gives AI coding agents the same compiler-accurate understanding of a Java codebase that a human developer gets in Eclipse or IntelliJ — call hierarchies, type hierarchies, references, refactorings, build classpath, JDK semantics — built directly on Eclipse JDT.
 
-## Built for AI Agents
+> **Java agents on steroids.** Pair with **[javalens-manager](https://github.com/hw1964/javalens-manager)** for a desktop control plane that turns one workspace's worth of Java projects into one MCP service.
 
-JavaLens exists because **AI systems need compiler-accurate insights that reading source files cannot provide**. When an AI uses `grep` or `Read` to find usages of a method, it cannot distinguish:
+---
+
+## Fork relationship
+
+This is a **substantially extended fork** of [pzalutski-pixel/javalens-mcp](https://github.com/pzalutski-pixel/javalens-mcp). The original v1.0–v1.2 work — Eclipse-JDT integration layer, the initial tool surface, the OSGi/Equinox plumbing — is by Piotr Zalutski. From v1.3 onward (Sprint 9–11, ~thousands of LOC) the fork has diverged substantially:
+
+- **v1.3.0** — multi-project `WorkspaceManager`; one javalens process serves many sibling projects with workspace-scoped cross-project search.
+- **v1.4.0** — `WorkspaceFileWatcher`: live `workspace.json` reconciliation so adding/removing a project doesn't require a process restart.
+- **v1.5.0** — Sprint 11 (this release): Tycho-aware Maven detection, workspace bundle pool for `Require-Bundle`, Gradle Tooling API integration, parametric tool consolidation (66 → 55 tools), Phase E LTK-refactoring foundation.
+- **v1.5.1** (planned) — five JDT-LTK structural-refactoring tools: `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
+
+See [`docs/release-notes/`](docs/release-notes/) for per-release detail.
+
+---
+
+## Built for AI agents
+
+JavaLens exists because **AI coding assistants need compiler-accurate insights that text search cannot provide**. When an AI uses `grep` or `Read` to find usages of a method, it cannot distinguish:
 
 - A method call from a method with the same name in an unrelated class
 - A field read from a field write
 - An interface implementation from an unrelated class
 - A cast to a type from other references to that type
+- An annotation usage from any other reference to the annotation type
 
-This leads to incorrect refactorings, missed usages, and incomplete understanding of code behavior.
+The result is incorrect refactorings, missed usages, and incomplete understanding of code behavior.
 
-## Compiler-Accurate Analysis
-
-JavaLens provides **compiler-accurate code analysis** through Eclipse JDT—the same engine that powers Eclipse IDE. Unlike text search, JDT understands:
+JavaLens drives Eclipse JDT — the same engine that powers Eclipse IDE — so the agent gets:
 
 - Type resolution across inheritance hierarchies
 - Method overloading and overriding
 - Generic type arguments
-- Import resolution and classpath dependencies
+- Import and classpath dependency resolution
+- Cross-bundle navigation (PDE / OSGi `Require-Bundle`)
+- LTK-backed refactorings (v1.5.1+)
 
-**Example:** Finding all places where `UserService.save()` is called:
+**Example.** Finding all places where `UserService.save()` is called:
 
 | Approach | Result |
-|----------|--------|
+|---|---|
 | `grep "save("` | Returns 47 matches including `orderService.save()`, `saveButton`, comments |
-| `find_references` | Returns exactly 12 calls to `UserService.save()` |
+| `find_references` (JavaLens) | Returns exactly 12 calls to `UserService.save()` |
 
-## AI Training Bias Warning
+---
 
-> ⚠️ **Important for AI developers and users**
+## What's in v1.5.0
 
-AI models may exhibit **trained bias toward native tools** (Grep, Read, LSP) over MCP server tools, even when semantic analysis provides better results. This happens because:
+### Multi-project workspace (since v1.3)
 
-1. Training data contains extensive grep/text-search patterns
-2. Native tools are "always available" in the model's experience
-3. The model may not recognize when semantic analysis is superior
+A *workspace* is a named group of Java projects loaded into one shared JavaLens process and exposed as one MCP service (`jl-<workspace-name>`). The agent sees the combined symbol set of every project in the workspace; cross-project navigation, find-references, and refactorings work across the whole group.
 
-**To get the best results:**
+- `add_project` / `remove_project` / `list_projects` — agent-callable workspace mutations.
+- Workspace-scoped cross-project search by default; optional `projectKey` parameter on every analysis tool to scope down to a single project.
 
-Add guidance to your project instructions or system prompt (e.g., `CLAUDE.md` for Claude Code):
+### Live updates via `workspace.json` (since v1.4)
 
-```markdown
-## Code Analysis Preferences
+The manager (or any other driver) writes a JSON file at `<data-dir>/workspace.json`:
 
-For Java code analysis, prefer JavaLens MCP tools over text search:
-- Use `find_references` instead of grep for finding usages
-- Use `find_implementations` instead of text search for implementations
-- Use `analyze_type` to understand a class before modifying it
-- Use refactoring tools (rename_symbol, extract_method) for safe changes
-
-Semantic analysis from JDT is more accurate than text-based search,
-especially for overloaded methods, inheritance, and generic types.
+```json
+{ "version": 1, "name": "jats", "projects": ["/abs/path/a", "/abs/path/b"] }
 ```
 
-## What is JavaLens?
+`WorkspaceFileWatcher` picks up changes through `java.nio.file.WatchService` and reconciles the running process's project list within ~1 s. No process restart, no MCP-client reload, no agent-session refresh.
 
-JavaLens is an MCP server that gives AI assistants deep understanding of Java codebases. It provides semantic analysis, navigation, refactoring, and code intelligence tools that go beyond simple text search.
+### Detection-matrix completion (v1.5.0, Sprint 11)
 
-## Why Not LSP?
+Three correctness gaps in the project-detection layer closed:
 
-Language Server Protocol was designed for IDE autocomplete and basic navigation—not for AI agent workflows that require deep semantic analysis.
+| Layout | Source roots | Dependencies |
+|---|---|---|
+| Regular Maven | `<sourceDirectory>` override + heuristic | `mvn dependency:build-classpath` shell-out |
+| **Maven-Tycho** | `.classpath` | **`Require-Bundle` resolved against the workspace bundle pool** (was: broken Maven shell-out) |
+| **Pure Eclipse PDE** | `.classpath` | `.classpath kind="lib"` **plus `Require-Bundle`** (was: lib only) |
+| **Gradle** | **Tooling API `EclipseProject` model** (was: heuristic) | **Tooling API resolved jars** (was: empty) |
 
-| Capability | Native LSP | JavaLens |
-|------------|------------|----------|
-| Find all `@Annotation` usages | ❌ | ✅ |
-| Find all `new Type()` instantiations | ❌ | ✅ |
-| Find all casts to a type | ❌ | ✅ |
-| Distinguish field reads from writes | ❌ | ✅ |
-| Detect circular package dependencies | ❌ | ✅ |
-| Calculate cyclomatic complexity | ❌ | ✅ |
-| Find unused private methods | ❌ | ✅ |
-| Detect possible null pointer bugs | ❌ | ✅ |
+Two PDE bundles loaded into one workspace where bundle A's `Require-Bundle` lists bundle B now have inter-bundle navigation working transparently.
 
-JavaLens wraps **Eclipse JDT Core** directly via OSGi, providing:
+### Tool-surface consolidation (v1.5.0)
 
-- **16 fine-grained reference types**: Find specifically casts, annotations, throws clauses, catch blocks, instanceof checks, method references, type arguments
-- **Read vs write access distinction**: Track where fields are mutated vs just read
-- **Indexed search**: 10x faster than AST walking for large codebases
-- **Full AST access**: Direct manipulation for complex refactorings
+Per-workspace tool count: **66 → 55** (heading to 60 once v1.5.1 adds the LTK refactorings). Two parametric tools replace 13 narrow ones:
+
+- **`find_pattern_usages(kind, query)`** — `kind ∈ { annotation, instantiation, type_argument, cast, instanceof }`.
+- **`find_quality_issue(kind, …)`** — `kind ∈ { naming, bugs, unused, large_classes, circular_deps, reflection, throws, catches }`.
+
+Both declare typed `kind` enums in their schema with per-kind descriptions, so agents discover capabilities through `tools/list` without trial and error. Frees agent budget for refactoring tools (Sprint 11 v1.5.1) and Sprint 12+ Ring 2 work — important under Antigravity's ≈100-tool cap.
+
+### LTK refactoring foundation (v1.5.0; concrete tools in v1.5.1)
+
+`org.eclipse.jdt.core.manipulation` and `org.eclipse.ltk.core.refactoring` ship in the target platform. `AbstractRefactoringTool` encapsulates the LTK plumbing — initial / final condition checks, `Change` creation, `PerformChangeOperation`, modified-CU collection. The five concrete refactoring tools land in v1.5.1.
+
+---
 
 ## Installation
 
 ### Prerequisites
 
-- **Java 21** or later (must be on PATH or set JAVA_HOME)
+- **Java 21+** on `PATH` or `JAVA_HOME`. JavaLens runs on JDT 2024-09 and parses Java 1.1–23 source.
 
-JavaLens is an analytical server, not a compiler. It uses Eclipse JDT 2024-09 to parse and understand Java source code from **version 1.1 through 23**. Java 21 is required only as the server runtime.
+### Recommended: javalens-manager
 
-### Install via npm
+For day-to-day use, drive JavaLens through **[javalens-manager](https://github.com/hw1964/javalens-manager)** — a Tauri desktop app that:
 
-```json
-{
-  "mcpServers": {
-    "javalens": {
-      "command": "npx",
-      "args": ["-y", "javalens-mcp"],
-      "env": {
-        "JAVA_PROJECT_PATH": "/path/to/your/java/project"
-      }
-    }
-  }
-}
+- Manages named workspaces of Java projects with a workspace-first UI.
+- Writes `workspace.json` for the file-watcher.
+- Deploys MCP server entries into Cursor / Claude Desktop / Antigravity / IntelliJ-style configs.
+- Polls for fork releases and downloads the latest jar automatically.
+
+```bash
+# Linux
+curl -sSL https://raw.githubusercontent.com/hw1964/javalens-manager/main/install.sh | bash
 ```
 
-The distribution (~19 MB) is downloaded and cached on first run.
+The manager handles the rest.
 
-### Download
+### Direct MCP client config (without the manager)
 
-Download from [Releases](https://github.com/pzalutski-pixel/javalens-mcp/releases):
-
-| Platform | File |
-|----------|------|
-| All platforms | `javalens.zip` or `javalens.tar.gz` |
-
-Extract to a location of your choice (e.g., `/opt/javalens` or `C:\javalens`).
-
-### Configure MCP Client
-
-Add to your MCP configuration (e.g., `.mcp.json` for Claude Code):
+Download a `javalens.zip` / `javalens.tar.gz` from [Releases](https://github.com/hw1964/javalens-mcp/releases) and add to your MCP config:
 
 ```json
 {
@@ -137,288 +137,178 @@ Add to your MCP configuration (e.g., `.mcp.json` for Claude Code):
 }
 ```
 
-The `-data` argument specifies where JavaLens stores its workspace metadata. See [How Workspaces Work](#how-workspaces-work) below.
-
-### Auto-Load a Project
-
-Set `JAVA_PROJECT_PATH` to auto-load a project when the server starts:
+Drop a `workspace.json` into `/path/to/javalens-workspaces/` to load projects:
 
 ```json
 {
-  "mcpServers": {
-    "javalens": {
-      "command": "java",
-      "args": ["-jar", "/path/to/javalens/javalens.jar", "-data", "/path/to/javalens-workspaces"],
-      "env": {
-        "JAVA_PROJECT_PATH": "/path/to/your/java/project"
-      }
-    }
-  }
+  "version": 1,
+  "name": "my-workspace",
+  "projects": ["/abs/path/to/project-a", "/abs/path/to/project-b"]
 }
 ```
 
-> **Note:** Project loading happens asynchronously in the background. The MCP server responds immediately while the project loads. Use `health_check` to monitor loading status—it will show `"project.status": "loading"` until complete, then `"loaded"` when ready.
+The watcher loads them on startup and reconciles edits live. For single-project legacy use, `JAVA_PROJECT_PATH` env var still auto-loads on startup (no `workspace.json` needed).
 
-## How Workspaces Work
+---
 
-Unlike in-memory code models, Eclipse JDT requires a **workspace directory** to store:
+## Tools (55 in v1.5.0; → 60 in v1.5.1)
 
-- Search indexes for fast symbol lookup
-- Compilation state and caches
-- Project metadata
-
-### Workspaces Are Outside Your Source
-
-JavaLens creates its workspace **outside your source project** to keep your codebase clean:
-
-```
-Your Java Project (unchanged)
-├── src/main/java/
-├── pom.xml
-└── (no Eclipse files added)
-
-JavaLens Workspace (specified by -data)
-└── {session-uuid}/
-    ├── .metadata/          <- JDT indexes and state
-    └── javalens-project/   <- Links to your source (not copies)
-```
-
-**Why this matters:**
-
-1. **No pollution**: Your source tree stays clean—no `.project` or `.classpath` files
-2. **No conflicts**: Works alongside any build system without interference
-3. **Session isolation**: Each MCP session gets its own workspace, enabling concurrent analysis
-
-### Session Lifecycle
-
-1. JavaLens starts and creates a unique workspace: `{base}/{uuid}/`
-2. `load_project` creates linked folders pointing to your source
-3. JDT builds indexes in the workspace (not in your project)
-4. When the session ends, the workspace is cleaned up
-
-## Tools
-
-### Navigation (10 tools)
+### Workspace administration (5)
 
 | Tool | Description |
-|------|-------------|
-| `search_symbols` | Search types, methods, fields by glob pattern |
-| `go_to_definition` | Navigate to symbol definition |
-| `find_references` | Find all usages of a symbol |
-| `find_implementations` | Find interface/class implementations |
-| `get_type_hierarchy` | Get inheritance chain |
-| `get_document_symbols` | Get all symbols in a file |
-| `get_symbol_info` | Get detailed symbol information at position |
-| `get_type_at_position` | Get type details at cursor |
-| `get_method_at_position` | Get method details at cursor |
-| `get_field_at_position` | Get field details at cursor |
+|---|---|
+| `health_check` | Server status, capabilities, workspace summary. |
+| `load_project` | Replace the workspace with a single project. |
+| `add_project` | Append a project to the workspace. |
+| `remove_project` | Drop a project from the workspace. |
+| `list_projects` | List loaded projects with their keys. |
 
-### Fine-Grained Reference Search (9 tools)
+### Navigation (10)
 
-These use JDT's unique reference type constants—not available through LSP:
+`search_symbols`, `go_to_definition`, `find_references`, `find_implementations`, `get_type_hierarchy`, `get_document_symbols`, `get_symbol_info`, `get_type_at_position`, `get_method_at_position`, `get_field_at_position`.
+
+### Search (5 + 2 parametric)
 
 | Tool | Description |
-|------|-------------|
-| `find_annotation_usages` | Find all `@Annotation` usages |
-| `find_type_instantiations` | Find all `new Type()` calls |
-| `find_casts` | Find all `(Type) expr` casts |
-| `find_instanceof_checks` | Find all `x instanceof Type` |
-| `find_throws_declarations` | Find all `throws Exception` in signatures |
-| `find_catch_blocks` | Find all `catch(Exception e)` blocks |
-| `find_method_references` | Find all `Type::method` expressions |
-| `find_type_arguments` | Find all `List<Type>` usages |
-| `find_reflection_usage` | Find `Class.forName()`, `Method.invoke()`, and other reflection calls |
+|---|---|
+| `find_method_references` | All `Type::method` expressions. |
+| `find_field_writes` | Locations where a field is mutated (vs read). |
+| `find_tests` | Discover JUnit/TestNG test methods. |
+| **`find_pattern_usages(kind, query)`** | Type-anchored pattern search: `annotation` / `instantiation` / `type_argument` / `cast` / `instanceof`. |
+| **`find_quality_issue(kind, …)`** | Code-quality analyses: `naming` / `bugs` / `unused` / `large_classes` / `circular_deps` / `reflection` / `throws` / `catches`. |
 
-### Analysis (16 tools)
+### Analysis (16)
 
-| Tool | Description |
-|------|-------------|
-| `get_diagnostics` | Get compilation errors and warnings |
-| `validate_syntax` | Fast syntax-only validation |
-| `get_call_hierarchy_incoming` | Find all callers of a method |
-| `get_call_hierarchy_outgoing` | Find all methods called by a method |
-| `find_field_writes` | Find where fields are mutated |
-| `find_tests` | Discover JUnit/TestNG test methods |
-| `find_unused_code` | Find unused private members |
-| `find_possible_bugs` | Detect null risks, empty catches, resource leaks |
-| `get_hover_info` | Get documentation/signature for symbol |
-| `get_javadoc` | Get parsed Javadoc |
-| `get_signature_help` | Get method signature at call site |
-| `get_enclosing_element` | Get containing method/class at position |
-| `analyze_change_impact` | Blast radius — all files and call sites affected by changing a symbol |
-| `analyze_data_flow` | Variable read/write/declaration tracking within a method |
-| `analyze_control_flow` | Branching, loops, return/throw points, nesting depth |
-| `get_di_registrations` | Find Spring DI registrations (@Component, @Bean, @Autowired, @Inject) |
+`get_diagnostics`, `validate_syntax`, `get_call_hierarchy_incoming`, `get_call_hierarchy_outgoing`, `get_hover_info`, `get_javadoc`, `get_signature_help`, `get_enclosing_element`, `analyze_change_impact`, `analyze_data_flow`, `analyze_control_flow`, `get_di_registrations`, `analyze_file`, `analyze_type`, `analyze_method`, `get_type_usage_summary`.
 
-### Compound Analysis (4 tools)
+### Refactoring (10 today; +5 in v1.5.1)
 
-Combine multiple queries to reduce round-trips:
+`rename_symbol`, `organize_imports`, `extract_variable`, `extract_method`, `extract_constant`, `extract_interface`, `inline_variable`, `inline_method`, `change_method_signature`, `convert_anonymous_to_lambda`.
 
-| Tool | Description |
-|------|-------------|
-| `analyze_file` | Get imports, types, diagnostics in one call |
-| `analyze_type` | Get members, hierarchy, usages, diagnostics |
-| `analyze_method` | Get signature, callers, callees, overrides |
-| `get_type_usage_summary` | Get instantiations, casts, instanceof counts |
+**Coming in v1.5.1 (LTK-backed):** `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
 
-### Refactoring (10 tools)
+### Quick fixes (3)
 
-All refactoring tools return **text edits** rather than applying changes directly:
+`suggest_imports`, `get_quick_fixes`, `apply_quick_fix`.
 
-| Tool | Description |
-|------|-------------|
-| `rename_symbol` | Rename across entire project |
-| `organize_imports` | Sort and clean imports |
-| `extract_variable` | Extract expression to local variable |
-| `extract_method` | Extract code block to new method |
-| `extract_constant` | Extract to `static final` field |
-| `extract_interface` | Create interface from class methods |
-| `inline_variable` | Replace variable with its initializer |
-| `inline_method` | Replace call with method body |
-| `change_method_signature` | Modify params/return, update all callers |
-| `convert_anonymous_to_lambda` | Convert anonymous class to lambda |
+### Metrics (2)
 
-### Quick Fixes (3 tools)
+`get_complexity_metrics`, `get_dependency_graph`. (Other quality metrics are exposed as `find_quality_issue` kinds.)
 
-| Tool | Description |
-|------|-------------|
-| `suggest_imports` | Find import candidates for unresolved type |
-| `get_quick_fixes` | List available fixes for problem at position |
-| `apply_quick_fix` | Apply fix by ID (add import, remove import, add throws, try-catch) |
+### Project & infrastructure (4)
 
-### Metrics (5 tools)
+`get_project_structure`, `get_classpath_info`, `get_type_members`, `get_super_method`.
 
-| Tool | Description |
-|------|-------------|
-| `get_complexity_metrics` | Cyclomatic/cognitive complexity, LOC per method |
-| `get_dependency_graph` | Package/type dependencies as nodes and edges |
-| `find_circular_dependencies` | Detect package cycles using Tarjan's SCC algorithm |
-| `find_large_classes` | Find types exceeding method/field/line count thresholds |
-| `find_naming_violations` | Check against Java naming conventions |
+---
 
-### Project & Infrastructure (6 tools)
+## AI training-bias warning
 
-| Tool | Description |
-|------|-------------|
-| `health_check` | Server status and capabilities |
-| `load_project` | Load Maven/Gradle/Bazel/plain Java project |
-| `get_project_structure` | Get package hierarchy |
-| `get_classpath_info` | Get classpath entries |
-| `get_type_members` | Get members by type name |
-| `get_super_method` | Find overridden method in superclass |
+Models often default to native tools (`grep`, `Read`, generic LSP) over MCP tools, even when semantic analysis gives much better results. Training data is dominated by text-search patterns and the model may not recognise when JDT-driven analysis is correct where text search is wrong.
 
-## Usage
+**Counter the bias** by adding guidance to your project instructions or system prompt (e.g. `CLAUDE.md` for Claude Code):
 
-### Basic Workflow
+```markdown
+## Code analysis preferences
 
-```
-1. load_project(projectPath="/path/to/java/project")
-2. search_symbols(query="*Service", kind="Class")
-3. find_references(filePath="...", line=10, column=15)
-4. analyze_type(typeName="com.example.UserService")
+For Java code analysis, prefer JavaLens MCP tools over text search:
+- Use find_references instead of grep for finding usages.
+- Use find_implementations instead of text search for implementations.
+- Use analyze_type to understand a class before modifying it.
+- Use the refactoring tools (rename_symbol, extract_method, …) for safe changes.
+
+Semantic analysis from JDT is more accurate than text-based search,
+especially for overloaded methods, inheritance, and generic types.
 ```
 
-### Coordinate System
+---
 
-All line/column parameters are **zero-based**:
-- Line 0, Column 0 = first character of file
+## Build system support
 
-### Path Handling
+| System | Detection | Source roots | Dependencies |
+|---|---|---|---|
+| Maven | `pom.xml` | `<sourceDirectory>` + heuristic | `mvn dependency:build-classpath` shell-out |
+| Maven-Tycho | `pom.xml` with `<packaging>eclipse-*</packaging>` | `.classpath` | `Require-Bundle` via workspace bundle pool |
+| Pure Eclipse PDE | `MANIFEST.MF` + `.classpath`, no pom | `.classpath` | `.classpath kind="lib"` + `Require-Bundle` pool |
+| Gradle | `build.gradle` / `build.gradle.kts` | `EclipseProject` Tooling API | Tooling API resolved jars |
+| Bazel | `MODULE.bazel` / `WORKSPACE` | heuristic + BUILD-file scan | `bazel-bin` / `bazel-out` jar walk |
+| Plain Java | `src/` directory | `src/`, `src/main/java`, `src/test/java`, … | (none) |
 
-- Response paths are **relative** by default
-- All paths use **forward slashes** for cross-platform consistency
-- Input paths can be relative or absolute
+The Gradle Tooling API needs a Gradle distribution at runtime. First call downloads one (~150 MB into `~/.gradle/caches/dists`); subsequent calls use the cache. CI environments without network access can opt out with `-Djavalens.skip.gradle=true`.
 
-## Important Notes
+---
 
-### No Live File Watching
+## How workspaces work (data dir layout)
 
-JavaLens analyzes code at load time and does **not** watch for file changes. This is by design—the AI coding agent is responsible for maintaining synchronization:
-
-| Event | Agent Action |
-|-------|--------------|
-| After writing/editing files | Call `load_project` to refresh indexes |
-| Before complex refactoring | Call `load_project` to ensure fresh state |
-| After external changes (git pull, etc.) | Call `load_project` to resync |
-
-**Why not automatic watching?**
-
-1. AI agents make discrete edits with clear boundaries—auto-sync adds complexity without benefit
-2. The agent controls when analysis should reflect changes
-3. Avoids race conditions between file writes and index updates
-
-**Recommended pattern:**
 ```
-1. Use JavaLens tools to analyze
-2. Write changes to files
-3. Call load_project to refresh
-4. Use JavaLens tools to verify changes
+<data-dir>/
+├── workspace.json         <- file-watcher's source of truth (manager writes this)
+├── .metadata/             <- JDT's index, search caches, builder state
+└── javalens-<project>-<session-uuid>/   <- linked-folder Eclipse project per loaded source tree
 ```
 
-### Refactoring Returns Edits
+The Eclipse projects are **linked folders** pointing at your real source trees — JavaLens doesn't copy or modify them. No `.project` / `.classpath` files are added to your source repo.
 
-Refactoring tools return text edits but don't modify files. This gives visibility into what would change before applying.
-
-### Session Isolation
-
-Each MCP session is independent with its own workspace UUID. Multiple sessions can analyze the same project concurrently.
-
-### Build System Support
-
-| System | Detection |
-|--------|-----------|
-| Maven | `pom.xml` |
-| Gradle | `build.gradle` / `build.gradle.kts` |
-| Bazel | `MODULE.bazel` / `WORKSPACE.bazel` / `WORKSPACE` |
-| Plain Java | `src/` directory |
+---
 
 ## Configuration
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `JAVA_PROJECT_PATH` | Auto-load project on startup | (none) |
-| `JAVALENS_TIMEOUT_SECONDS` | Operation timeout | 30 |
-| `JAVALENS_LOG_LEVEL` | TRACE/DEBUG/INFO/WARN/ERROR | INFO |
-| `JAVA_TOOL_OPTIONS` | JVM options, e.g. `-Xmx2g` for large projects | (default: 512m via eclipse.ini) |
+| Env var | Effect | Default |
+|---|---|---|
+| `JAVA_PROJECT_PATH` | Auto-load this project on startup (legacy single-project mode; ignored when `workspace.json` is present). | (none) |
+| `JAVALENS_TIMEOUT_SECONDS` | Per-operation timeout. | `30` |
+| `JAVALENS_LOG_LEVEL` | `TRACE` / `DEBUG` / `INFO` / `WARN` / `ERROR`. | `INFO` |
+| `JAVA_TOOL_OPTIONS` | JVM options (e.g. `-Xmx2g` for very large workspaces). | (eclipse.ini default 512m) |
 
-## Building from Source
+---
+
+## Building from source
 
 ```bash
-git clone https://github.com/pzalutski-pixel/javalens-mcp.git
+git clone https://github.com/hw1964/javalens-mcp.git
 cd javalens-mcp
-./mvnw clean verify
+mvn clean verify
 ```
 
-Distributions are output to `org.javalens.product/target/products/`.
+Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.0: **122/122** in `org.javalens.core.tests`, **399/399** in `org.javalens.mcp.tests`.
 
-### Build Requirements
+### Build prerequisites
 
-- Java 21+ (server runtime)
-- Maven 3.9+ (wrapper included)
+- Java 21+
+- Maven 3.9+ (the repo no longer ships a wrapper — use the system `mvn`)
+- ~3 GB free disk for the Tycho-resolved p2 cache on first build
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      MCP Client                          │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  MCP client (Cursor / Claude / Antigravity / IntelliJ / manager)│
+└─────────────────────────────────────────────────────────────────┘
                             │ JSON-RPC over stdio
-┌─────────────────────────────────────────────────────────┐
-│  org.javalens.mcp                                        │
-│    McpProtocolHandler → ToolRegistry → 56 Tools          │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  org.javalens.mcp                                               │
+│    JavaLensApplication → ToolRegistry → 55 tools                │
+│      • workspace admin · navigation · search · analysis         │
+│      • refactoring (10 + 5 in v1.5.1) · quick fixes · metrics   │
+└─────────────────────────────────────────────────────────────────┘
                             │
-┌─────────────────────────────────────────────────────────┐
-│  org.javalens.core                                       │
-│    JdtServiceImpl → WorkspaceManager, SearchService      │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  org.javalens.core                                              │
+│    JdtServiceImpl  ←→  WorkspaceManager (+ bundle pool)         │
+│    SearchService                                                │
+│    WorkspaceFileWatcher  ←─── workspace.json (live)             │
+│    ProjectImporter (Tycho-aware · Gradle Tooling API · PDE)     │
+└─────────────────────────────────────────────────────────────────┘
                             │
-┌─────────────────────────────────────────────────────────┐
-│  Eclipse JDT Core (via OSGi/Equinox)                     │
-│    IWorkspace, IJavaProject, SearchEngine, ASTParser     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Eclipse JDT 2024-09 (via OSGi/Equinox)                         │
+│    IWorkspace · IJavaProject · SearchEngine · ASTParser · LTK   │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE). Original work © Piotr Zalutski; fork additions (Sprint 9–11, v1.3.0+) © Harald Wegner. Both retained per MIT terms.
