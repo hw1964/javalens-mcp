@@ -21,6 +21,7 @@ import org.w3c.dom.NodeList;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,6 +30,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -107,8 +110,8 @@ public class ProjectImporter {
         // 2. Create linked folders and add source entries
         addSourceEntries(entries, project, projectPath, workspaceManager);
 
-        // 3. Add dependency JARs from build system
-        addDependencyEntries(entries, projectPath);
+        // 3. Add dependency JARs from build system + Require-Bundle siblings
+        addDependencyEntries(entries, projectPath, workspaceManager);
 
         // 4. Add output location
         IPath outputPath = project.getFullPath().append("bin");
@@ -301,7 +304,8 @@ public class ProjectImporter {
         return name.replaceAll("[^a-zA-Z0-9\\-_]", "-").replaceAll("-+", "-");
     }
 
-    private void addDependencyEntries(List<IClasspathEntry> entries, java.nio.file.Path projectPath) {
+    private void addDependencyEntries(List<IClasspathEntry> entries, java.nio.file.Path projectPath,
+            org.javalens.core.workspace.WorkspaceManager workspaceManager) {
         // Eclipse .classpath kind="lib" entries (ADR 0001).
         // Merged alongside build-system-resolved deps; pure-Eclipse projects without a pom
         // get full dependency resolution from .classpath alone.
@@ -346,6 +350,28 @@ public class ProjectImporter {
         // Add compiled classes directories (Gradle)
         addIfExists(entries, projectPath, "build/classes/java/main");
         addIfExists(entries, projectPath, "build/classes/java/test");
+
+        // Sprint 11 Phase B: workspace bundle pool — resolve Require-Bundle
+        // entries against sibling projects already loaded into the workspace.
+        // Externally-resolved bundles (system bundles in the target platform,
+        // bundles from another tool's IDE) stay unresolved and just don't
+        // contribute classpath entries.
+        int bundleEntries = 0;
+        if (workspaceManager != null) {
+            for (String required : readManifestRequireBundle(projectPath)) {
+                Optional<org.eclipse.jdt.core.IJavaProject> sibling =
+                    workspaceManager.resolveBundle(required);
+                if (sibling.isPresent()) {
+                    entries.add(JavaCore.newProjectEntry(sibling.get().getPath()));
+                    bundleEntries++;
+                } else {
+                    log.debug("Require-Bundle '{}' not found in workspace bundle pool; skipping", required);
+                }
+            }
+        }
+        if (bundleEntries > 0) {
+            log.info("Resolved {} Require-Bundle entries from the workspace bundle pool", bundleEntries);
+        }
 
         log.info("Added {} dependency entries from {}", jars.size(), buildSystem);
     }
@@ -616,6 +642,79 @@ public class ProjectImporter {
         return readPomPackaging(projectPath.resolve("pom.xml"))
             .map(ProjectImporter::isTychoPackaging)
             .orElse(false);
+    }
+
+    /**
+     * Read {@code Bundle-SymbolicName} from {@code META-INF/MANIFEST.MF},
+     * stripping any directives such as {@code ;singleton:=true}.
+     * Returns {@code Optional.empty()} when the manifest is absent, malformed,
+     * or has no {@code Bundle-SymbolicName} header.
+     *
+     * <p>Phase B (Sprint 11): used by the workspace bundle pool to register
+     * each loaded PDE bundle by its symbolic name so {@code Require-Bundle}
+     * dependencies between sibling projects in the same workspace resolve
+     * to project-typed classpath entries.</p>
+     */
+    public static Optional<String> readManifestSymbolicName(java.nio.file.Path projectRoot) {
+        java.nio.file.Path manifestPath = projectRoot.resolve("META-INF").resolve("MANIFEST.MF");
+        if (!Files.isRegularFile(manifestPath)) {
+            return Optional.empty();
+        }
+        try (InputStream in = Files.newInputStream(manifestPath)) {
+            Manifest manifest = new Manifest(in);
+            Attributes attrs = manifest.getMainAttributes();
+            String value = attrs.getValue("Bundle-SymbolicName");
+            if (value == null) {
+                return Optional.empty();
+            }
+            return Optional.of(stripDirectives(value));
+        } catch (IOException e) {
+            log.warn("Failed to parse MANIFEST.MF at {}: {}", manifestPath, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Read {@code Require-Bundle} from {@code META-INF/MANIFEST.MF} and
+     * return the list of required bundle symbolic names (without version
+     * or visibility directives).
+     *
+     * <p>Multi-line OSGi headers (continuation lines starting with a single
+     * space) are joined automatically by {@link Manifest}; this method
+     * handles the resulting comma-separated list and per-entry directives.</p>
+     */
+    public static List<String> readManifestRequireBundle(java.nio.file.Path projectRoot) {
+        java.nio.file.Path manifestPath = projectRoot.resolve("META-INF").resolve("MANIFEST.MF");
+        if (!Files.isRegularFile(manifestPath)) {
+            return List.of();
+        }
+        try (InputStream in = Files.newInputStream(manifestPath)) {
+            Manifest manifest = new Manifest(in);
+            String header = manifest.getMainAttributes().getValue("Require-Bundle");
+            if (header == null || header.isBlank()) {
+                return List.of();
+            }
+            // Split on commas at the top level (commas inside quoted version
+            // ranges would be a problem in theory; in practice OSGi version
+            // ranges use semicolons after the comma-separated entries).
+            List<String> result = new ArrayList<>();
+            for (String entry : header.split(",")) {
+                String name = stripDirectives(entry).trim();
+                if (!name.isEmpty()) {
+                    result.add(name);
+                }
+            }
+            return result;
+        } catch (IOException e) {
+            log.warn("Failed to parse MANIFEST.MF at {}: {}", manifestPath, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Strip OSGi attribute / directive suffixes (e.g. {@code ;singleton:=true}). */
+    private static String stripDirectives(String value) {
+        int semi = value.indexOf(';');
+        return (semi == -1 ? value : value.substring(0, semi)).trim();
     }
 
     /**

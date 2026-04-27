@@ -166,6 +166,8 @@ public class JdtServiceImpl implements IJdtService {
             return false;
         }
         workspaceSearchService = null;  // scope changed — rebuild on next access
+        // Sprint 11 Phase B: drop bundle registrations contributed by this project.
+        workspaceManager.unregisterBundlesForProject(removed.javaProject().getProject());
         log.info("Removed project '{}' from workspace", projectKey);
         if (projectKey.equals(defaultProjectKey)) {
             // Pick a new default deterministically: the first remaining key
@@ -206,6 +208,13 @@ public class JdtServiceImpl implements IJdtService {
 
         String projectName = "javalens-" + absRoot.getFileName();
         IProject project = workspaceManager.createLinkedProject(projectName, absRoot);
+
+        // Sprint 11 Phase B: register the bundle in the workspace bundle pool
+        // BEFORE configureJavaProject runs, so this project's own classpath
+        // resolution (and subsequent siblings') can honour Require-Bundle.
+        ProjectImporter.readManifestSymbolicName(absRoot)
+            .ifPresent(symbolicName -> workspaceManager.registerBundle(symbolicName, project));
+
         IJavaProject jp = projectImporter.configureJavaProject(project, absRoot, workspaceManager);
         SearchService search = new SearchService(jp);
 
