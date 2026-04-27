@@ -34,20 +34,13 @@ import org.javalens.mcp.tools.GetCallHierarchyIncomingTool;
 import org.javalens.mcp.tools.GetCallHierarchyOutgoingTool;
 import org.javalens.mcp.tools.FindFieldWritesTool;
 import org.javalens.mcp.tools.FindTestsTool;
-import org.javalens.mcp.tools.FindUnusedCodeTool;
-import org.javalens.mcp.tools.FindPossibleBugsTool;
+import org.javalens.mcp.tools.FindPatternUsagesTool;
+import org.javalens.mcp.tools.FindQualityIssueTool;
 import org.javalens.mcp.tools.RenameSymbolTool;
 import org.javalens.mcp.tools.OrganizeImportsTool;
 import org.javalens.mcp.tools.ExtractVariableTool;
 import org.javalens.mcp.tools.ExtractMethodTool;
-import org.javalens.mcp.tools.FindAnnotationUsagesTool;
-import org.javalens.mcp.tools.FindTypeInstantiationsTool;
-import org.javalens.mcp.tools.FindCastsTool;
-import org.javalens.mcp.tools.FindInstanceofChecksTool;
-import org.javalens.mcp.tools.FindThrowsDeclarationsTool;
-import org.javalens.mcp.tools.FindCatchBlocksTool;
 import org.javalens.mcp.tools.FindMethodReferencesTool;
-import org.javalens.mcp.tools.FindTypeArgumentsTool;
 import org.javalens.mcp.tools.AnalyzeFileTool;
 import org.javalens.mcp.tools.AnalyzeTypeTool;
 import org.javalens.mcp.tools.AnalyzeMethodTool;
@@ -63,14 +56,10 @@ import org.javalens.mcp.tools.GetQuickFixesTool;
 import org.javalens.mcp.tools.ApplyQuickFixTool;
 import org.javalens.mcp.tools.GetComplexityMetricsTool;
 import org.javalens.mcp.tools.GetDependencyGraphTool;
-import org.javalens.mcp.tools.FindCircularDependenciesTool;
 import org.javalens.mcp.tools.AnalyzeChangeImpactTool;
 import org.javalens.mcp.tools.AnalyzeControlFlowTool;
 import org.javalens.mcp.tools.AnalyzeDataFlowTool;
 import org.javalens.mcp.tools.GetDiRegistrationsTool;
-import org.javalens.mcp.tools.FindReflectionUsageTool;
-import org.javalens.mcp.tools.FindLargeClassesTool;
-import org.javalens.mcp.tools.FindNamingViolationsTool;
 import org.javalens.mcp.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -312,8 +301,6 @@ public class JavaLensApplication implements IApplication {
         // Analysis tools
         toolRegistry.register(new FindFieldWritesTool(() -> jdtService));
         toolRegistry.register(new FindTestsTool(() -> jdtService));
-        toolRegistry.register(new FindUnusedCodeTool(() -> jdtService));
-        toolRegistry.register(new FindPossibleBugsTool(() -> jdtService));
 
         // Refactoring tools
         toolRegistry.register(new RenameSymbolTool(() -> jdtService));
@@ -321,15 +308,17 @@ public class JavaLensApplication implements IApplication {
         toolRegistry.register(new ExtractVariableTool(() -> jdtService));
         toolRegistry.register(new ExtractMethodTool(() -> jdtService));
 
-        // Fine-grained reference search (JDT-unique capabilities)
-        toolRegistry.register(new FindAnnotationUsagesTool(() -> jdtService));
-        toolRegistry.register(new FindTypeInstantiationsTool(() -> jdtService));
-        toolRegistry.register(new FindCastsTool(() -> jdtService));
-        toolRegistry.register(new FindInstanceofChecksTool(() -> jdtService));
-        toolRegistry.register(new FindThrowsDeclarationsTool(() -> jdtService));
-        toolRegistry.register(new FindCatchBlocksTool(() -> jdtService));
+        // Fine-grained reference search (JDT-unique capabilities).
+        // Sprint 11 Phase D: 13 narrow find_* tools collapsed to 2 parametric ones.
+        // - find_pattern_usages (annotation, instantiation, type_argument, cast, instanceof)
+        // - find_quality_issue  (naming, bugs, unused, large_classes, circular_deps,
+        //                        reflection, throws, catches)
+        // The narrow tool classes remain in the package as the analysis
+        // implementations the parametric tools delegate to; they're no
+        // longer registered as user-facing MCP tools.
+        toolRegistry.register(new FindPatternUsagesTool(() -> jdtService));
+        toolRegistry.register(new FindQualityIssueTool(() -> jdtService));
         toolRegistry.register(new FindMethodReferencesTool(() -> jdtService));
-        toolRegistry.register(new FindTypeArgumentsTool(() -> jdtService));
 
         // Compound analysis tools
         toolRegistry.register(new AnalyzeFileTool(() -> jdtService));
@@ -353,16 +342,16 @@ public class JavaLensApplication implements IApplication {
         // Metrics tools
         toolRegistry.register(new GetComplexityMetricsTool(() -> jdtService));
         toolRegistry.register(new GetDependencyGraphTool(() -> jdtService));
-        toolRegistry.register(new FindCircularDependenciesTool(() -> jdtService));
 
         // Advanced analysis tools
         toolRegistry.register(new AnalyzeChangeImpactTool(() -> jdtService));
         toolRegistry.register(new AnalyzeControlFlowTool(() -> jdtService));
         toolRegistry.register(new AnalyzeDataFlowTool(() -> jdtService));
         toolRegistry.register(new GetDiRegistrationsTool(() -> jdtService));
-        toolRegistry.register(new FindReflectionUsageTool(() -> jdtService));
-        toolRegistry.register(new FindLargeClassesTool(() -> jdtService));
-        toolRegistry.register(new FindNamingViolationsTool(() -> jdtService));
+        // Sprint 11 Phase D: FindCircularDependencies / FindReflectionUsage /
+        // FindLargeClasses / FindNamingViolations / FindUnusedCode /
+        // FindPossibleBugs registrations dropped — exposed via
+        // find_quality_issue(kind=...) above.
     }
 
     private void runMessageLoop() {
