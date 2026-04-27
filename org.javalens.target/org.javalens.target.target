@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <?pde version="3.8"?>
-<target name="JavaLens Target Platform (Eclipse 2024-09)" sequenceNumber="1">
+<target name="JavaLens Target Platform (Eclipse 2024-09)" sequenceNumber="2">
     <locations>
         <!-- Eclipse 2024-09 Release -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
@@ -11,6 +11,11 @@
             <unit id="org.eclipse.jdt.core.compiler.batch" version="0.0.0"/>
             <unit id="org.eclipse.jdt.apt.core" version="0.0.0"/>
             <unit id="org.eclipse.jdt.launching" version="0.0.0"/>
+
+            <!-- Sprint 11 Phase E: JDT LTK refactoring API
+                 (move_class, move_package, pull_up, push_down, encapsulate_field). -->
+            <unit id="org.eclipse.jdt.core.manipulation" version="0.0.0"/>
+            <unit id="org.eclipse.ltk.core.refactoring" version="0.0.0"/>
 
             <!-- Eclipse Platform Core -->
             <unit id="org.eclipse.core.runtime" version="0.0.0"/>
