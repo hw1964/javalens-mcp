@@ -19,6 +19,8 @@ build/
 *.class
 out/
 target/
+# Sprint 11 Phase C: embedded Bundle-ClassPath jars must be tracked
+!org.javalens.core/lib/*.jar
 
 # Working folder - session continuity docs (not tracked)
 working/

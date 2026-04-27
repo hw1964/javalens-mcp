@@ -9,6 +9,11 @@ import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.launching.JavaRuntime;
+import org.gradle.tooling.GradleConnector;
+import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.model.eclipse.EclipseExternalDependency;
+import org.gradle.tooling.model.eclipse.EclipseProject;
+import org.gradle.tooling.model.eclipse.EclipseSourceDirectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -212,6 +217,20 @@ public class ProjectImporter {
         // For Bazel projects without standard source layout, scan for Java source directories
         if (sourcePaths.isEmpty() && detectBuildSystem(projectPath) == BuildSystem.BAZEL) {
             addBazelSourcePaths(projectPath, sourcePaths);
+        }
+
+        // Sprint 11 Phase C: for Gradle projects, also pull source directories
+        // declared via sourceSets in build.gradle (custom srcDirs etc.) — the
+        // Tooling API gives us the resolved list. Falls back silently to the
+        // heuristic when Gradle isn't reachable.
+        if (detectBuildSystem(projectPath) == BuildSystem.GRADLE) {
+            readGradleProjectModel(projectPath).ifPresent(model -> {
+                for (java.nio.file.Path declared : model.srcPaths()) {
+                    if (!sourcePaths.contains(declared)) {
+                        sourcePaths.add(declared);
+                    }
+                }
+            });
         }
 
         return sourcePaths;
@@ -445,10 +464,80 @@ public class ProjectImporter {
     }
 
     private List<String> getGradleDependencies(java.nio.file.Path projectPath) {
-        // Gradle classpath extraction relies on build output directories
-        // which are added in addDependencyEntries
-        return List.of();
+        // Sprint 11 Phase C: ask Gradle for the actual classpath via the
+        // Tooling API. Falls back to an empty list when Gradle isn't
+        // reachable (no internet on first run, daemon failure, etc.) —
+        // build/classes/java/{main,test} added in addDependencyEntries
+        // remains as a backstop for the heuristic case.
+        return readGradleProjectModel(projectPath)
+            .map(model -> model.classpathJars().stream()
+                .map(java.nio.file.Path::toString)
+                .toList())
+            .orElseGet(List::of);
     }
+
+    /**
+     * Sprint 11 Phase C — Gradle Tooling API integration.
+     *
+     * <p>Connects to Gradle via the embedded
+     * {@code gradle-tooling-api} jar (see {@code Bundle-ClassPath} in
+     * MANIFEST.MF), queries the {@link EclipseProject} model, and
+     * returns the resolved source directories and classpath jars.</p>
+     *
+     * <p>Returns {@link Optional#empty()} on any failure (no Gradle
+     * distribution available, daemon launch failure, project doesn't
+     * apply the {@code java} plugin, etc.) so callers can fall back to
+     * heuristics. Failures are logged at debug level — they're expected
+     * for non-Gradle projects and CI environments without network access.</p>
+     */
+    public static Optional<GradleProjectModel> readGradleProjectModel(java.nio.file.Path projectPath) {
+        if (!Files.isDirectory(projectPath)) {
+            return Optional.empty();
+        }
+        boolean hasBuildScript = Files.isRegularFile(projectPath.resolve("build.gradle"))
+            || Files.isRegularFile(projectPath.resolve("build.gradle.kts"));
+        if (!hasBuildScript) {
+            return Optional.empty();
+        }
+        GradleConnector connector = GradleConnector.newConnector()
+            .forProjectDirectory(projectPath.toFile());
+        try (ProjectConnection connection = connector.connect()) {
+            EclipseProject eclipseProject = connection.getModel(EclipseProject.class);
+            List<java.nio.file.Path> srcPaths = new ArrayList<>();
+            for (EclipseSourceDirectory srcDir : eclipseProject.getSourceDirectories()) {
+                java.nio.file.Path resolved = srcDir.getDirectory().toPath().toAbsolutePath().normalize();
+                if (Files.isDirectory(resolved)) {
+                    srcPaths.add(resolved);
+                }
+            }
+            List<java.nio.file.Path> classpathJars = new ArrayList<>();
+            for (EclipseExternalDependency dep : eclipseProject.getClasspath()) {
+                java.nio.file.Path jar = dep.getFile().toPath().toAbsolutePath().normalize();
+                if (Files.isRegularFile(jar)) {
+                    classpathJars.add(jar);
+                }
+            }
+            return Optional.of(new GradleProjectModel(srcPaths, classpathJars));
+        } catch (Exception e) {
+            log.debug("Gradle Tooling API failed for {}: {}", projectPath, e.getMessage());
+            return Optional.empty();
+        } finally {
+            // Daemons spawned by the Tooling API would otherwise stick around
+            // after the test JVM exits. Disconnecting the singleton-per-JVM
+            // connector tells them to stop on the next idle cycle.
+            try {
+                ((org.gradle.tooling.internal.consumer.DefaultGradleConnector) connector).disconnect();
+            } catch (Throwable t) {
+                // Best-effort cleanup; ignore if the internal API isn't available.
+            }
+        }
+    }
+
+    /** Outcome of {@link #readGradleProjectModel(java.nio.file.Path)}. */
+    public record GradleProjectModel(
+        List<java.nio.file.Path> srcPaths,
+        List<java.nio.file.Path> classpathJars
+    ) {}
 
     /**
      * Get dependency JARs from Bazel build output.

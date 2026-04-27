@@ -6,6 +6,8 @@ Bundle-Version: 1.2.0.qualifier
 Bundle-Vendor: JavaLens
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy
+Bundle-ClassPath: .,
+ lib/gradle-tooling-api-8.10.jar
 Export-Package: org.javalens.core,
  org.javalens.core.exceptions,
  org.javalens.core.project,
