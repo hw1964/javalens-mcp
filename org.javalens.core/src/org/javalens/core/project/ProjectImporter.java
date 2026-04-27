@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,6 +46,23 @@ public class ProjectImporter {
     private static final Logger log = LoggerFactory.getLogger(ProjectImporter.class);
 
     public enum BuildSystem { MAVEN, GRADLE, BAZEL, UNKNOWN }
+
+    /**
+     * Tycho packaging values for which Maven's {@code dependency:build-classpath}
+     * goal returns wrong/empty results: Tycho injects classpath via the target
+     * platform + {@code MANIFEST.MF}, not via pom {@code <dependencies>}.
+     * Detected projects bypass {@link #getMavenDependencies(java.nio.file.Path)}
+     * and rely on {@code .classpath kind="lib"} entries plus (in v1.5.0+)
+     * {@code Require-Bundle} resolution against the workspace bundle pool.
+     */
+    private static final Set<String> TYCHO_PACKAGINGS = Set.of(
+        "eclipse-plugin",
+        "eclipse-test-plugin",
+        "eclipse-feature",
+        "eclipse-repository",
+        "eclipse-update-site",
+        "eclipse-target-definition"
+    );
 
     // Source folder mapping: external relative path -> linked folder name
     private static final String[][] SOURCE_MAPPINGS = {
@@ -298,9 +316,13 @@ public class ProjectImporter {
         }
 
         BuildSystem buildSystem = detectBuildSystem(projectPath);
+        boolean tycho = buildSystem == BuildSystem.MAVEN && isTychoProject(projectPath);
+        if (tycho) {
+            log.debug("Tycho packaging detected at {} — skipping mvn dependency:build-classpath", projectPath);
+        }
 
         List<String> jars = switch (buildSystem) {
-            case MAVEN -> getMavenDependencies(projectPath);
+            case MAVEN -> tycho ? List.of() : getMavenDependencies(projectPath);
             case GRADLE -> getGradleDependencies(projectPath);
             case BAZEL -> getBazelDependencies(projectPath);
             default -> List.of();
@@ -540,6 +562,60 @@ public class ProjectImporter {
         static ClasspathInfo empty() {
             return new ClasspathInfo(List.of(), List.of(), Optional.empty());
         }
+    }
+
+    /**
+     * Read the top-level &lt;packaging&gt; element from pom.xml.
+     * Returns {@code Optional.empty()} when the pom is missing, malformed,
+     * or has no &lt;packaging&gt; element (which Maven treats as "jar").
+     */
+    static Optional<String> readPomPackaging(java.nio.file.Path pomXml) {
+        if (!Files.isRegularFile(pomXml)) {
+            return Optional.empty();
+        }
+        try {
+            DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            Document doc = builder.parse(pomXml.toFile());
+            // <packaging> is always a direct child of the project root in pom.xml.
+            Element root = doc.getDocumentElement();
+            if (root == null) {
+                return Optional.empty();
+            }
+            NodeList kids = root.getChildNodes();
+            for (int i = 0; i < kids.getLength(); i++) {
+                if (kids.item(i) instanceof Element el && "packaging".equals(el.getTagName())) {
+                    String text = el.getTextContent();
+                    if (text != null) {
+                        String trimmed = text.trim();
+                        if (!trimmed.isEmpty()) {
+                            return Optional.of(trimmed);
+                        }
+                    }
+                }
+            }
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("Failed to parse pom.xml at {}: {}", pomXml, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * True for Tycho packaging types (eclipse-plugin, eclipse-feature, …)
+     * for which Maven's classpath-extraction goal produces misleading results.
+     */
+    static boolean isTychoPackaging(String packaging) {
+        return packaging != null && TYCHO_PACKAGINGS.contains(packaging);
+    }
+
+    /**
+     * True if {@code projectPath/pom.xml} declares a Tycho packaging type.
+     * Used to gate the {@code mvn dependency:build-classpath} shell-out.
+     */
+    static boolean isTychoProject(java.nio.file.Path projectPath) {
+        return readPomPackaging(projectPath.resolve("pom.xml"))
+            .map(ProjectImporter::isTychoPackaging)
+            .orElse(false);
     }
 
     /**
