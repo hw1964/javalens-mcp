@@ -136,6 +136,36 @@ public class TestProjectHelper implements BeforeEachCallback, AfterEachCallback 
     }
 
     /**
+     * Load multiple fixtures into a shared multi-project workspace, each
+     * copied to its own temp directory so the original fixtures stay clean.
+     * Builds on the Sprint 10 v1.3.0 multi-project workspace API
+     * ({@link JdtServiceImpl#addProject(Path)}).
+     *
+     * <p>Cross-bundle refactoring tests (e.g. {@code pull_up} from a class in
+     * one PDE bundle to a supertype in another) load fixtures this way so
+     * {@code Require-Bundle} resolution against the workspace bundle pool
+     * (Sprint 11 Phase B) sees both projects together.</p>
+     *
+     * @param fixtureNames One or more fixture names (e.g. {@code "pde-bundle-a"},
+     *                     {@code "pde-bundle-b"})
+     * @return Configured JdtServiceImpl with every fixture added as a project
+     * @throws IllegalArgumentException if no fixture names are passed
+     * @throws CoreException if any project fails to register
+     * @throws IOException   if any fixture copy fails
+     */
+    public JdtServiceImpl loadWorkspaceCopy(String... fixtureNames) throws CoreException, IOException {
+        if (fixtureNames == null || fixtureNames.length == 0) {
+            throw new IllegalArgumentException("at least one fixture name is required");
+        }
+        loadedService = new JdtServiceImpl();
+        for (String name : fixtureNames) {
+            Path projectPath = copyFixture(name);
+            loadedService.addProject(projectPath);
+        }
+        return loadedService;
+    }
+
+    /**
      * Get the temporary directory for this test.
      *
      * @return Temporary directory path

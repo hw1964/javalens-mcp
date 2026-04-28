@@ -7,7 +7,6 @@ import org.javalens.mcp.fixtures.TestProjectHelper;
 import org.javalens.mcp.models.ToolResponse;
 import org.javalens.mcp.tools.PullUpTool;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -40,9 +39,6 @@ class PullUpToolTest {
     }
 
     @Test
-    @Disabled("v1.5.1 known issue: JDT manipulation's import-rewrite path needs "
-        + "org.eclipse.jdt.ui preference defaults registered in headless mode. "
-        + "See docs/upgrade-checklist.md; full happy-path coverage in v1.5.2.")
     @DisplayName("happy: pull RefactoringDerived.uniqueMethod() up to RefactoringBase")
     void happy_pullUniqueMethodToBase() throws Exception {
         Path file = projectPath.resolve("src/main/java/com/example/RefactoringHierarchy.java");
@@ -51,8 +47,8 @@ class PullUpToolTest {
         ObjectNode args = objectMapper.createObjectNode();
         args.put("filePath", file.toString());
         // Position on the `uniqueMethod` declaration line (zero-based).
-        // 'void uniqueMethod() {' is on line index 24 (per fixture file layout).
-        args.put("line", 24);
+        // 'void uniqueMethod() {' is on line index 26 (per fixture file layout).
+        args.put("line", 26);
         args.put("column", 9);
 
         ToolResponse r = tool.execute(args);
@@ -88,7 +84,7 @@ class PullUpToolTest {
         args.put("filePath", file.toString());
         // Position on RefactoringTarget.processData(...) — its declaring type
         // RefactoringTarget extends Object, so pull-up is rejected pre-flight.
-        args.put("line", 22);
+        args.put("line", 24);
         args.put("column", 16);
 
         ToolResponse r = tool.execute(args);

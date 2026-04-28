@@ -31,6 +31,11 @@ public class ErrorInfo {
         return hint;
     }
 
+    @Override
+    public String toString() {
+        return code + " / " + message;
+    }
+
     // Standard error codes
     public static final String PROJECT_NOT_LOADED = "PROJECT_NOT_LOADED";
     public static final String FILE_NOT_FOUND = "FILE_NOT_FOUND";

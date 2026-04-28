@@ -279,7 +279,7 @@ cd javalens-mcp
 mvn clean verify
 ```
 
-Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.1: **122/122** in `org.javalens.core.tests`, **414/414** in `org.javalens.mcp.tests` (4 happy-path refactoring tests `@Disabled` pending the JDT-UI preference-init work scheduled for v1.5.2 — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
+Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.2: **122/122** in `org.javalens.core.tests`, **415/415** in `org.javalens.mcp.tests` (1 `EncapsulateField` happy-path `@Disabled` pending an upstream JDT 2024-09 fix — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
 
 ### Build prerequisites
 

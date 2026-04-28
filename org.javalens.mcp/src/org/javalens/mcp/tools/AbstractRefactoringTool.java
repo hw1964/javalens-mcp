@@ -47,24 +47,24 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractRefactoringTool.class);
 
-    /**
-     * One-time JDT manipulation init. Eclipse IDE normally calls
-     * {@code JavaManipulation.setPreferenceNodeId} on startup; in our
-     * headless RCP application no UI plugin does that, and refactorings
-     * that touch the import-rewrite path (move_class, …) NPE deep inside
-     * {@code ProjectScope.getNode} when the preference plugin id is
-     * unset. Register our bundle id once for both production runs and
-     * Tycho test runs (any refactoring tool subclass triggers this on
-     * first instantiation).
-     */
     private static volatile boolean jdtManipulationInitialized = false;
 
     /**
-     * One-time JDT manipulation init. Eclipse IDE's {@code org.eclipse.jdt.ui}
-     * plugin activator registers a preference node id and seeds defaults for
-     * the import-rewrite settings; we don't import that bundle, so for
-     * headless RCP runs (and Tycho-surefire test runs) we have to do both
-     * ourselves before the first refactoring runs.
+     * One-time JDT-UI preference seeding. Eclipse IDE's
+     * {@code org.eclipse.jdt.ui} plugin activator registers default values
+     * for {@code importorder} / {@code ondemandthreshold} /
+     * {@code staticondemandthreshold} on startup; we don't import that
+     * bundle, so in headless RCP runs (and Tycho-surefire test runs) the
+     * import-rewrite path used by {@code move_class}, {@code pull_up},
+     * {@code push_down}, and {@code encapsulate_field} fetches a null
+     * import-order string and NPEs.
+     *
+     * <p>JDT reads these via {@code JavaManipulation.getPreference(...)},
+     * which walks {@code ProjectScope} → {@code InstanceScope} →
+     * {@code DefaultScope} against the {@code "org.eclipse.jdt.ui"} preference
+     * node specifically — not against any custom node we might pass to
+     * {@code JavaManipulation.setPreferenceNodeId(...)}. Writing to the
+     * standard JDT-UI node is the fix.</p>
      *
      * <p>Has to be invoked lazily, not from a {@code static {}} block — the
      * preferences subsystem may not be wired before this class first loads,
@@ -73,18 +73,34 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
     private static synchronized void initializeJdtManipulation() {
         if (jdtManipulationInitialized) return;
         try {
-            org.eclipse.jdt.core.manipulation.JavaManipulation.setPreferenceNodeId("org.javalens.mcp");
-            // Seed in DefaultScope so JDT sees the values regardless of which
-            // scope its lookup walks first (Project / Instance / Default).
+            // 1. Tell JavaManipulation which preference node to consult.
+            //    JavaManipulation.getPreference(...) walks
+            //      ProjectScope(fgPreferenceNodeId) → InstanceScope(fgPreferenceNodeId)
+            //      → DefaultScope(fgPreferenceNodeId)
+            //    where fgPreferenceNodeId comes from setPreferenceNodeId. Eclipse IDE's
+            //    org.eclipse.jdt.ui activator normally sets this to "org.eclipse.jdt.ui";
+            //    in headless RCP runs (no jdt.ui bundle) it stays null, and getPreference
+            //    silently returns null which then NPEs deep inside CodeStyleConfiguration's
+            //    ImportRewrite plumbing. Set it ourselves to the standard JDT-UI node so
+            //    our writes below are the ones JDT reads.
+            //
+            //    JavaManipulation.setPreferenceNodeId asserts that the node id hasn't
+            //    been set already (or is being cleared); only call it when nothing else
+            //    set it first.
+            if (org.eclipse.jdt.core.manipulation.JavaManipulation.getPreferenceNodeId() == null) {
+                org.eclipse.jdt.core.manipulation.JavaManipulation.setPreferenceNodeId("org.eclipse.jdt.ui");
+            }
+            // 2. Seed defaults on the same node so the Project → Instance → Default
+            //    lookup chain finds something. DefaultScope is the fall-through that
+            //    matters; InstanceScope is mirrored for any caller that probes it
+            //    directly.
             var defaults = org.eclipse.core.runtime.preferences.DefaultScope.INSTANCE
-                .getNode("org.javalens.mcp");
+                .getNode("org.eclipse.jdt.ui");
             defaults.put("org.eclipse.jdt.ui.importorder", "java;javax;org;com;");
             defaults.put("org.eclipse.jdt.ui.ondemandthreshold", "99");
             defaults.put("org.eclipse.jdt.ui.staticondemandthreshold", "99");
-            // Mirror the same keys at InstanceScope; some JDT call paths
-            // probe Instance directly.
             var instance = org.eclipse.core.runtime.preferences.InstanceScope.INSTANCE
-                .getNode("org.javalens.mcp");
+                .getNode("org.eclipse.jdt.ui");
             if (instance.get("org.eclipse.jdt.ui.importorder", null) == null) {
                 instance.put("org.eclipse.jdt.ui.importorder", "java;javax;org;com;");
             }
@@ -93,6 +109,49 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
             }
             if (instance.get("org.eclipse.jdt.ui.staticondemandthreshold", null) == null) {
                 instance.put("org.eclipse.jdt.ui.staticondemandthreshold", "99");
+            }
+            // 3. Wire up the code-template store. SelfEncapsulateFieldRefactoring's
+            //    getter/setter generation calls JavaManipulation.getCodeTemplateStore();
+            //    Eclipse JDT.UI sets this on plugin startup. In headless RCP nothing
+            //    does, so ProjectTemplateStore.fInstanceStore stays null and the
+            //    encapsulate-field codegen NPEs inside getTemplateData(). A minimal
+            //    TemplateStoreCore backed by the InstanceScope JDT-UI node is
+            //    enough — load() pulls in any contributed templates if the registry
+            //    is wired and otherwise leaves the store empty (codegen falls back
+            //    to default templates).
+            if (org.eclipse.jdt.core.manipulation.JavaManipulation.getCodeTemplateStore() == null) {
+                try {
+                    var templateStore = new org.eclipse.text.templates.TemplateStoreCore(
+                        org.eclipse.core.runtime.preferences.InstanceScope.INSTANCE
+                            .getNode("org.eclipse.jdt.ui"),
+                        "org.eclipse.jdt.ui.text.custom_code_templates");
+                    try {
+                        templateStore.load();
+                    } catch (java.io.IOException e) {
+                        // Empty store is acceptable — codegen has built-in fallbacks.
+                    }
+                    org.eclipse.jdt.core.manipulation.JavaManipulation.setCodeTemplateStore(templateStore);
+                } catch (Throwable inner) {
+                    log.warn("CodeTemplateStore init failed (encapsulate_field codegen may NPE): {}",
+                        inner.getMessage(), inner);
+                }
+            }
+            // 4. Install the MembersOrderPreferenceCacheCommon. Eclipse IDE's
+            //    org.eclipse.jdt.ui activator does this on startup; in headless
+            //    RCP nothing does, so the cache singleton's fPreferences field
+            //    stays null and any internal-JDT call path that touches it
+            //    (CodeStyleConfiguration's import-rewrite path, the structural
+            //    refactoring processors used by pull_up / push_down /
+            //    encapsulate_field) NPEs. install() reads the InstanceScope /
+            //    DefaultScope nodes for the id we just set above and caches them.
+            try {
+                var plugin = org.eclipse.jdt.internal.core.manipulation.JavaManipulationPlugin.getDefault();
+                if (plugin != null) {
+                    plugin.getMembersOrderPreferenceCacheCommon().install();
+                }
+            } catch (Throwable inner) {
+                log.warn("MembersOrderPreferenceCacheCommon.install() failed (refactorings may NPE): {}",
+                    inner.getMessage(), inner);
             }
         } catch (Throwable t) {
             log.warn("JDT manipulation init failed (refactorings will likely error): {}", t.getMessage(), t);
@@ -173,6 +232,14 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
                         addFatalError("createChange() returned null");
                     }});
             }
+
+            // 4b. Initialise the change's validation state. LTK's
+            //     PerformChangeOperation calls Change.isValid() during
+            //     execution; without initializeValidationData(), TextFileChange
+            //     (and friends) throw "has not been initialialized". Eclipse's
+            //     refactoring wizard infrastructure does this implicitly via
+            //     CreateChangeOperation; the headless path doesn't.
+            change.initializeValidationData(new NullProgressMonitor());
 
             // 5. Perform the change. PerformChangeOperation handles undo
             //    history, validation, and cleanup. If the change throws,

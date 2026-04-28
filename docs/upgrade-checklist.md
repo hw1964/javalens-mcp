@@ -25,20 +25,28 @@ This document lists every version-sensitive piece of code in the fork. Run throu
 ### What to verify after a target-platform bump
 
 1. Build `org.javalens.mcp` — internal-API renames / deletions fail at compile time. Fix mechanically by tracking the renamed/moved class.
-2. Run `mvn -pl org.javalens.mcp.tests verify -Dtest='*RefactoringTool*'`. The validation/conflict tests must stay green; happy-path tests are currently `@Disabled` (see below).
+2. Run `mvn -pl org.javalens.mcp.tests verify -Dtest='*RefactoringTool*'`. All happy/validation/conflict tests must stay green. One happy-path (`EncapsulateFieldToolTest.happy_encapsulatePublicField`) is `@Disabled` pending an upstream JDT fix — see "JDT bug" note below.
 3. Re-check `Require-Bundle: org.eclipse.jdt.core.manipulation` in [org.javalens.mcp/META-INF/MANIFEST.MF](../org.javalens.mcp/META-INF/MANIFEST.MF) — Eclipse occasionally splits or merges plugin bundles between releases. The dependency may need to point at a different bundle or split into two.
 
-### Known limitation — JDT.UI preference defaults (v1.5.1)
+### Resolved in v1.5.2 — JDT-UI preference defaults + cache install + change-validation
 
-In JDT 2024-09, the import-rewrite path used by `MoveDescriptor`, `PullUpRefactoringProcessor`, `PushDownRefactoringProcessor`, and `SelfEncapsulateFieldRefactoring` reads import-order / on-demand-threshold preferences via `JavaManipulation.getPreference(...)`. Eclipse IDE registers defaults for these via `org.eclipse.jdt.ui`'s plugin activator; we don't import that bundle, and our own `InstanceScope`/`DefaultScope` writes from `AbstractRefactoringTool#initializeJdtManipulation` aren't found by JDT's lookup chain in headless mode.
+Three JDT-internal initialisation steps that Eclipse IDE's `org.eclipse.jdt.ui` plugin activator does on startup were missing in our headless RCP runtime, causing the four happy-path refactoring tests to NPE. [`AbstractRefactoringTool#initializeJdtManipulation`](../org.javalens.mcp/src/org/javalens/mcp/tools/AbstractRefactoringTool.java) now does them itself, lazily on first refactoring call:
 
-The four happy-path tests for `move_class`, `pull_up`, `push_down`, `encapsulate_field` are therefore `@Disabled` in v1.5.1. Validation and conflict semantics still tested. The full happy-path coverage lands in **v1.5.2** once we have a clean way to register the defaults — likely either:
+1. `JavaManipulation.setPreferenceNodeId("org.eclipse.jdt.ui")` plus default-scope writes for `importorder` / `ondemandthreshold` / `staticondemandthreshold` so `JavaManipulation.getPreference(...)` (used by `CodeStyleConfiguration.configureImportRewrite`) returns non-null.
+2. `JavaManipulation.setCodeTemplateStore(new TemplateStoreCore(...))` so `ProjectTemplateStore.fInstanceStore` is non-null when JDT looks up code templates.
+3. `JavaManipulationPlugin.getDefault().getMembersOrderPreferenceCacheCommon().install()` so the cache singleton's `fPreferences` field is hydrated before any refactoring touches it.
 
-- Registering `org.eclipse.jdt.ui` (and its transitive UI deps) as a target-platform dep purely for its preference activator, or
-- Calling `IPreferencesService.applyPreferences(...)` against a pre-built `IExportedPreferences` snapshot, or
-- A custom `BundleActivator` on `org.javalens.mcp` that programmatically registers the defaults early.
+In addition, `runRefactoring` now calls `change.initializeValidationData(monitor)` between `createChange` and `PerformChangeOperation`. Eclipse's refactoring wizard infrastructure does this implicitly via `CreateChangeOperation`; the headless path doesn't, so without it `TextFileChange.isValid()` throws "TextFileChange has not been initialialized".
 
-`MovePackageTool`'s happy-path test uses `RenameJavaElementDescriptor`, which doesn't touch the import-rewrite path, and stays green — confirming the LTK plumbing itself works.
+Three of the four previously-disabled happy-path tests (`move_class`, `pull_up`, `push_down`) plus the new cross-bundle `pullUp_acrossOsgiBundles` integration test now pass.
+
+### Known limitation — `EncapsulateField` happy-path (JDT 2024-09 bug)
+
+`SelfEncapsulateFieldRefactoring.createSetterMethod` has a bug in its fallback path: when `CodeGeneration.getSetterMethodBodyContent()` returns null (because no `org.eclipse.jdt.ui.text.codetemplates.setterbody` template is registered), it creates a bare `Assignment` AST node and calls `block.statements().add(ass)`. `Block.statements()` expects `Statement` instances, so this fails with `class Assignment is not an instance of class Statement`.
+
+To make this work in headless mode we'd need to recreate Eclipse JDT-UI's full code-template machinery: `JavaContextType` (subclass of `CodeTemplateContextType` registering `${field}` / `${enclosing_method}` / etc. variables) plus a populated `ContributionContextTypeRegistry` set via `JavaManipulation.setCodeTemplateContextRegistry(...)`. That's deeper into JDT-UI internals than is reasonable to maintain across target-platform bumps.
+
+The fix belongs upstream — `createSetterMethod` should wrap the fallback `Assignment` in an `ExpressionStatement` before adding it to the block. Until then, `EncapsulateFieldToolTest.happy_encapsulatePublicField` stays `@Disabled` with an explanatory message; validation and conflict paths still cover the tool. The other four happy-path tests pass.
 
 ## Tycho project-import edges
 

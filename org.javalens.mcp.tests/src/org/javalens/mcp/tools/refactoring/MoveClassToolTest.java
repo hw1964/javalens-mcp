@@ -7,7 +7,6 @@ import org.javalens.mcp.fixtures.TestProjectHelper;
 import org.javalens.mcp.models.ToolResponse;
 import org.javalens.mcp.tools.MoveClassTool;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -44,11 +43,6 @@ class MoveClassToolTest {
     }
 
     @Test
-    @Disabled("v1.5.1 known issue: JDT manipulation's import-rewrite path needs "
-        + "org.eclipse.jdt.ui's preference defaults registered. In headless RCP runs we "
-        + "haven't yet wired those (org.eclipse.jdt.ui.importorder etc.); see "
-        + "docs/upgrade-checklist.md. The tool's input handling is exercised by the "
-        + "validation/conflict tests below; full happy-path coverage lands in v1.5.2.")
     @DisplayName("happy: move RefactoringTarget from com.example to com.example.target")
     void happy_moveClassToNewSubpackage() throws Exception {
         Path source = projectPath.resolve("src/main/java/com/example/RefactoringTarget.java");

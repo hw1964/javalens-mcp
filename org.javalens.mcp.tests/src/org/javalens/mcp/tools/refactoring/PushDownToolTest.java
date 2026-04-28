@@ -7,7 +7,6 @@ import org.javalens.mcp.fixtures.TestProjectHelper;
 import org.javalens.mcp.models.ToolResponse;
 import org.javalens.mcp.tools.PushDownTool;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -40,9 +39,6 @@ class PushDownToolTest {
     }
 
     @Test
-    @Disabled("v1.5.1 known issue: JDT manipulation's import-rewrite path needs "
-        + "org.eclipse.jdt.ui preference defaults registered in headless mode. "
-        + "See docs/upgrade-checklist.md; full happy-path coverage in v1.5.2.")
     @DisplayName("happy: push RefactoringBase.commonMethod() down to RefactoringDerived")
     void happy_pushCommonMethodDown() throws Exception {
         Path file = projectPath.resolve("src/main/java/com/example/RefactoringHierarchy.java");
@@ -51,8 +47,8 @@ class PushDownToolTest {
         ObjectNode args = objectMapper.createObjectNode();
         args.put("filePath", file.toString());
         // Position on `commonMethod` line in class RefactoringBase
-        // ('void commonMethod() {' is on line index 17).
-        args.put("line", 17);
+        // ('void commonMethod() {' is on line index 18).
+        args.put("line", 18);
         args.put("column", 9);
 
         ToolResponse r = tool.execute(args);

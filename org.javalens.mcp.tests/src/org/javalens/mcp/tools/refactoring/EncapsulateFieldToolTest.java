@@ -39,9 +39,17 @@ class EncapsulateFieldToolTest {
     }
 
     @Test
-    @Disabled("v1.5.1 known issue: JDT manipulation's import-rewrite path needs "
-        + "org.eclipse.jdt.ui preference defaults registered in headless mode. "
-        + "See docs/upgrade-checklist.md; full happy-path coverage in v1.5.2.")
+    @Disabled("Blocked on JDT 2024-09 bug: SelfEncapsulateFieldRefactoring.createSetterMethod's "
+        + "fallback path (used when CodeGeneration.getSetterMethodBodyContent returns null because "
+        + "no GETTERSTUB/SETTERSTUB code template is registered) creates a bare Assignment AST node "
+        + "and adds it to Block.statements() — which expects Statement instances and fails with "
+        + "'class Assignment is not an instance of class Statement'. Eclipse IDE never hits this "
+        + "fallback because its JDT-UI plug-in registers code templates on activator startup; in "
+        + "headless RCP we'd need to recreate JavaContextType + ContributionContextTypeRegistry "
+        + "(more JDT-UI internals than is reasonable). v1.5.2 disables this single happy-path; "
+        + "validation and conflict paths still cover the tool. The fix belongs upstream in "
+        + "SelfEncapsulateFieldRefactoring (wrap the fallback Assignment in an ExpressionStatement). "
+        + "See docs/upgrade-checklist.md.")
     @DisplayName("happy: encapsulate RefactoringDerived.fieldToEncapsulate generates accessors")
     void happy_encapsulatePublicField() throws Exception {
         Path file = projectPath.resolve("src/main/java/com/example/RefactoringHierarchy.java");
@@ -49,8 +57,8 @@ class EncapsulateFieldToolTest {
 
         ObjectNode args = objectMapper.createObjectNode();
         args.put("filePath", file.toString());
-        // 'public int fieldToEncapsulate;' is on line index 22.
-        args.put("line", 22);
+        // 'public int fieldToEncapsulate;' is on line index 24.
+        args.put("line", 24);
         args.put("column", 16);
 
         ToolResponse r = tool.execute(args);
