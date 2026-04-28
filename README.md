@@ -16,8 +16,8 @@ This is a **substantially extended fork** of [pzalutski-pixel/javalens-mcp](http
 
 - **v1.3.0** — multi-project `WorkspaceManager`; one javalens process serves many sibling projects with workspace-scoped cross-project search.
 - **v1.4.0** — `WorkspaceFileWatcher`: live `workspace.json` reconciliation so adding/removing a project doesn't require a process restart.
-- **v1.5.0** — Sprint 11 (this release): Tycho-aware Maven detection, workspace bundle pool for `Require-Bundle`, Gradle Tooling API integration, parametric tool consolidation (66 → 55 tools), Phase E LTK-refactoring foundation.
-- **v1.5.1** (planned) — five JDT-LTK structural-refactoring tools: `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
+- **v1.5.0** — Sprint 11 (Phases A–D): Tycho-aware Maven detection, workspace bundle pool for `Require-Bundle`, Gradle Tooling API integration, parametric tool consolidation (66 → 55 tools), Phase E LTK-refactoring foundation.
+- **v1.5.1** — Sprint 11 Phase E (this release): five JDT-LTK structural-refactoring tools — `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`. Tool count 55 → 60.
 
 See [`docs/release-notes/`](docs/release-notes/) for per-release detail.
 
@@ -42,7 +42,7 @@ JavaLens drives Eclipse JDT — the same engine that powers Eclipse IDE — so t
 - Generic type arguments
 - Import and classpath dependency resolution
 - Cross-bundle navigation (PDE / OSGi `Require-Bundle`)
-- LTK-backed refactorings (v1.5.1+)
+- LTK-backed refactorings (since v1.5.1)
 
 **Example.** Finding all places where `UserService.save()` is called:
 
@@ -53,7 +53,7 @@ JavaLens drives Eclipse JDT — the same engine that powers Eclipse IDE — so t
 
 ---
 
-## What's in v1.5.0
+## What's in v1.5.x
 
 ### Multi-project workspace (since v1.3)
 
@@ -87,16 +87,26 @@ Two PDE bundles loaded into one workspace where bundle A's `Require-Bundle` list
 
 ### Tool-surface consolidation (v1.5.0)
 
-Per-workspace tool count: **66 → 55** (heading to 60 once v1.5.1 adds the LTK refactorings). Two parametric tools replace 13 narrow ones:
+Per-workspace tool count: **66 → 55 in v1.5.0 → 60 in v1.5.1** (after the LTK refactorings land). Two parametric tools replace 13 narrow ones:
 
 - **`find_pattern_usages(kind, query)`** — `kind ∈ { annotation, instantiation, type_argument, cast, instanceof }`.
 - **`find_quality_issue(kind, …)`** — `kind ∈ { naming, bugs, unused, large_classes, circular_deps, reflection, throws, catches }`.
 
-Both declare typed `kind` enums in their schema with per-kind descriptions, so agents discover capabilities through `tools/list` without trial and error. Frees agent budget for refactoring tools (Sprint 11 v1.5.1) and Sprint 12+ Ring 2 work — important under Antigravity's ≈100-tool cap.
+Both declare typed `kind` enums in their schema with per-kind descriptions, so agents discover capabilities through `tools/list` without trial and error. Frees agent budget for the v1.5.1 refactorings and Sprint 12+ Ring 2 work — important under Antigravity's ≈100-tool cap.
 
-### LTK refactoring foundation (v1.5.0; concrete tools in v1.5.1)
+### Structural refactorings (v1.5.1)
 
-`org.eclipse.jdt.core.manipulation` and `org.eclipse.ltk.core.refactoring` ship in the target platform. `AbstractRefactoringTool` encapsulates the LTK plumbing — initial / final condition checks, `Change` creation, `PerformChangeOperation`, modified-CU collection. The five concrete refactoring tools land in v1.5.1.
+`org.eclipse.jdt.core.manipulation` and `org.eclipse.ltk.core.refactoring` ship in the target platform; `AbstractRefactoringTool` encapsulates the LTK plumbing — initial / final condition checks, `Change` creation, `PerformChangeOperation`, modified-CU collection. v1.5.1 adds five concrete tools on top:
+
+| Tool | What it does |
+|---|---|
+| `move_class` | Move a Java type to a different package; rewrites every import and qualified reference workspace-wide. Creates the target package if missing. |
+| `move_package` | Rename / relocate a whole package, recursing into every compilation unit. |
+| `pull_up` | Move a method or field from a subtype up to its direct supertype; for methods, optionally leave an abstract declaration on the original. |
+| `push_down` | Move a method or field from a supertype into all of its direct subtypes. |
+| `encapsulate_field` | Generate getter/setter for a field, replace direct accesses, optionally tighten field visibility. |
+
+All accept the inherited optional `projectKey` for workspace-scoped refactorings. On rejection (`REFACTORING_FAILED`), no files are modified. See [`docs/release-notes/v1.5.1.md`](docs/release-notes/v1.5.1.md) and [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md) — three of the five tools use `org.eclipse.jdt.internal.corext.*` processor classes; the upgrade checklist documents what to verify on Eclipse target-platform bumps.
 
 ---
 
@@ -151,7 +161,7 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 
 ---
 
-## Tools (55 in v1.5.0; → 60 in v1.5.1)
+## Tools (60 in v1.5.1)
 
 ### Workspace administration (5)
 
@@ -181,11 +191,11 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 
 `get_diagnostics`, `validate_syntax`, `get_call_hierarchy_incoming`, `get_call_hierarchy_outgoing`, `get_hover_info`, `get_javadoc`, `get_signature_help`, `get_enclosing_element`, `analyze_change_impact`, `analyze_data_flow`, `analyze_control_flow`, `get_di_registrations`, `analyze_file`, `analyze_type`, `analyze_method`, `get_type_usage_summary`.
 
-### Refactoring (10 today; +5 in v1.5.1)
+### Refactoring (15)
 
-`rename_symbol`, `organize_imports`, `extract_variable`, `extract_method`, `extract_constant`, `extract_interface`, `inline_variable`, `inline_method`, `change_method_signature`, `convert_anonymous_to_lambda`.
+**Local:** `rename_symbol`, `organize_imports`, `extract_variable`, `extract_method`, `extract_constant`, `extract_interface`, `inline_variable`, `inline_method`, `change_method_signature`, `convert_anonymous_to_lambda`.
 
-**Coming in v1.5.1 (LTK-backed):** `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
+**Structural (LTK-backed, v1.5.1):** `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
 
 ### Quick fixes (3)
 
@@ -269,7 +279,7 @@ cd javalens-mcp
 mvn clean verify
 ```
 
-Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.0: **122/122** in `org.javalens.core.tests`, **399/399** in `org.javalens.mcp.tests`.
+Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.1: **122/122** in `org.javalens.core.tests`, **414/414** in `org.javalens.mcp.tests` (4 happy-path refactoring tests `@Disabled` pending the JDT-UI preference-init work scheduled for v1.5.2 — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
 
 ### Build prerequisites
 
@@ -292,9 +302,9 @@ When you change the Eclipse release the fork builds against (currently 2024-09),
                             │ JSON-RPC over stdio
 ┌─────────────────────────────────────────────────────────────────┐
 │  org.javalens.mcp                                               │
-│    JavaLensApplication → ToolRegistry → 55 tools                │
+│    JavaLensApplication → ToolRegistry → 60 tools                │
 │      • workspace admin · navigation · search · analysis         │
-│      • refactoring (10 + 5 in v1.5.1) · quick fixes · metrics   │
+│      • refactoring (15) · quick fixes · metrics                 │
 └─────────────────────────────────────────────────────────────────┘
                             │
 ┌─────────────────────────────────────────────────────────────────┐
