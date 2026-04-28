@@ -41,6 +41,11 @@ import org.javalens.mcp.tools.OrganizeImportsTool;
 import org.javalens.mcp.tools.ExtractVariableTool;
 import org.javalens.mcp.tools.ExtractMethodTool;
 import org.javalens.mcp.tools.FindMethodReferencesTool;
+import org.javalens.mcp.tools.MoveClassTool;
+import org.javalens.mcp.tools.MovePackageTool;
+import org.javalens.mcp.tools.PullUpTool;
+import org.javalens.mcp.tools.PushDownTool;
+import org.javalens.mcp.tools.EncapsulateFieldTool;
 import org.javalens.mcp.tools.AnalyzeFileTool;
 import org.javalens.mcp.tools.AnalyzeTypeTool;
 import org.javalens.mcp.tools.AnalyzeMethodTool;
@@ -333,6 +338,13 @@ public class JavaLensApplication implements IApplication {
         toolRegistry.register(new ChangeMethodSignatureTool(() -> jdtService));
         toolRegistry.register(new ExtractInterfaceTool(() -> jdtService));
         toolRegistry.register(new ConvertAnonymousToLambdaTool(() -> jdtService));
+
+        // Sprint 11 Phase E (v1.5.1): JDT-LTK structural refactoring tools.
+        toolRegistry.register(new MoveClassTool(() -> jdtService));
+        toolRegistry.register(new MovePackageTool(() -> jdtService));
+        toolRegistry.register(new PullUpTool(() -> jdtService));
+        toolRegistry.register(new PushDownTool(() -> jdtService));
+        toolRegistry.register(new EncapsulateFieldTool(() -> jdtService));
 
         // Quick fix tools
         toolRegistry.register(new SuggestImportsTool(() -> jdtService));

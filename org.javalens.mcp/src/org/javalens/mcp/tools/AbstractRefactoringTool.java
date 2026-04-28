@@ -47,13 +47,68 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractRefactoringTool.class);
 
+    /**
+     * One-time JDT manipulation init. Eclipse IDE normally calls
+     * {@code JavaManipulation.setPreferenceNodeId} on startup; in our
+     * headless RCP application no UI plugin does that, and refactorings
+     * that touch the import-rewrite path (move_class, …) NPE deep inside
+     * {@code ProjectScope.getNode} when the preference plugin id is
+     * unset. Register our bundle id once for both production runs and
+     * Tycho test runs (any refactoring tool subclass triggers this on
+     * first instantiation).
+     */
+    private static volatile boolean jdtManipulationInitialized = false;
+
+    /**
+     * One-time JDT manipulation init. Eclipse IDE's {@code org.eclipse.jdt.ui}
+     * plugin activator registers a preference node id and seeds defaults for
+     * the import-rewrite settings; we don't import that bundle, so for
+     * headless RCP runs (and Tycho-surefire test runs) we have to do both
+     * ourselves before the first refactoring runs.
+     *
+     * <p>Has to be invoked lazily, not from a {@code static {}} block — the
+     * preferences subsystem may not be wired before this class first loads,
+     * and writes to an unwired store get dropped.</p>
+     */
+    private static synchronized void initializeJdtManipulation() {
+        if (jdtManipulationInitialized) return;
+        try {
+            org.eclipse.jdt.core.manipulation.JavaManipulation.setPreferenceNodeId("org.javalens.mcp");
+            // Seed in DefaultScope so JDT sees the values regardless of which
+            // scope its lookup walks first (Project / Instance / Default).
+            var defaults = org.eclipse.core.runtime.preferences.DefaultScope.INSTANCE
+                .getNode("org.javalens.mcp");
+            defaults.put("org.eclipse.jdt.ui.importorder", "java;javax;org;com;");
+            defaults.put("org.eclipse.jdt.ui.ondemandthreshold", "99");
+            defaults.put("org.eclipse.jdt.ui.staticondemandthreshold", "99");
+            // Mirror the same keys at InstanceScope; some JDT call paths
+            // probe Instance directly.
+            var instance = org.eclipse.core.runtime.preferences.InstanceScope.INSTANCE
+                .getNode("org.javalens.mcp");
+            if (instance.get("org.eclipse.jdt.ui.importorder", null) == null) {
+                instance.put("org.eclipse.jdt.ui.importorder", "java;javax;org;com;");
+            }
+            if (instance.get("org.eclipse.jdt.ui.ondemandthreshold", null) == null) {
+                instance.put("org.eclipse.jdt.ui.ondemandthreshold", "99");
+            }
+            if (instance.get("org.eclipse.jdt.ui.staticondemandthreshold", null) == null) {
+                instance.put("org.eclipse.jdt.ui.staticondemandthreshold", "99");
+            }
+        } catch (Throwable t) {
+            log.warn("JDT manipulation init failed (refactorings will likely error): {}", t.getMessage(), t);
+        } finally {
+            jdtManipulationInitialized = true;
+        }
+    }
+
     protected AbstractRefactoringTool(Supplier<IJdtService> serviceSupplier) {
         super(serviceSupplier);
     }
 
     /**
      * Run the refactoring described by {@code descriptor} and return a
-     * structured response. Subclasses build the descriptor, then call this.
+     * structured response. Subclasses that have a {@link JavaRefactoringDescriptor}
+     * with public setters call this entry point.
      *
      * @param service          live IJdtService (already non-null per AbstractTool contract)
      * @param descriptor       fully-configured JDT refactoring descriptor
@@ -63,6 +118,7 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
     protected ToolResponse runRefactoring(IJdtService service,
                                           JavaRefactoringDescriptor descriptor,
                                           String operationLabel) {
+        initializeJdtManipulation();
         try {
             // 1. Build the refactoring object from the descriptor.
             RefactoringStatus status = new RefactoringStatus();
@@ -76,7 +132,25 @@ public abstract class AbstractRefactoringTool extends AbstractTool {
             if (status.hasError()) {
                 return ToolResponse.invalidParameter(operationLabel, formatStatus(status));
             }
+            return runRefactoring(service, refactoring, operationLabel);
+        } catch (Exception e) {
+            log.warn("Refactoring '{}' threw unexpectedly: {}", operationLabel, e.getMessage(), e);
+            return ToolResponse.internalError(e);
+        }
+    }
 
+    /**
+     * Run a pre-built {@link Refactoring} and return a structured response.
+     * Subclasses that configure their refactoring via internal JDT processor
+     * classes (Phase E pull_up / push_down / encapsulate_field — see
+     * {@code docs/upgrade-checklist.md}) build the {@link Refactoring}
+     * directly and call this entry point.
+     */
+    protected ToolResponse runRefactoring(IJdtService service,
+                                          Refactoring refactoring,
+                                          String operationLabel) {
+        initializeJdtManipulation();
+        try {
             // 2. Initial conditions — checks the inputs themselves.
             RefactoringStatus initial = refactoring.checkInitialConditions(new NullProgressMonitor());
             if (initial.hasFatalError()) {

@@ -277,6 +277,10 @@ Distribution archives are written to `org.javalens.product/target/products/`. Te
 - Maven 3.9+ (the repo no longer ships a wrapper — use the system `mvn`)
 - ~3 GB free disk for the Tycho-resolved p2 cache on first build
 
+### Bumping the Eclipse target platform
+
+When you change the Eclipse release the fork builds against (currently 2024-09), walk through [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md) — it lists the version-sensitive pieces (Sprint 11 Phase E refactorings depend on `org.eclipse.jdt.internal.corext.*`; `gradle-tooling-api` is embedded under `org.javalens.core/lib/`; etc.) and the verification commands to run.
+
 ---
 
 ## Architecture
