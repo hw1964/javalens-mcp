@@ -46,6 +46,8 @@ import org.javalens.mcp.tools.MovePackageTool;
 import org.javalens.mcp.tools.PullUpTool;
 import org.javalens.mcp.tools.PushDownTool;
 import org.javalens.mcp.tools.EncapsulateFieldTool;
+import org.javalens.mcp.tools.CompileWorkspaceTool;
+import org.javalens.mcp.tools.RunTestsTool;
 import org.javalens.mcp.tools.AnalyzeFileTool;
 import org.javalens.mcp.tools.AnalyzeTypeTool;
 import org.javalens.mcp.tools.AnalyzeMethodTool;
@@ -345,6 +347,10 @@ public class JavaLensApplication implements IApplication {
         toolRegistry.register(new PullUpTool(() -> jdtService));
         toolRegistry.register(new PushDownTool(() -> jdtService));
         toolRegistry.register(new EncapsulateFieldTool(() -> jdtService));
+
+        // Sprint 12 (v1.6.0): Ring 1 workspace verification tools.
+        toolRegistry.register(new CompileWorkspaceTool(() -> jdtService));
+        toolRegistry.register(new RunTestsTool(() -> jdtService));
 
         // Quick fix tools
         toolRegistry.register(new SuggestImportsTool(() -> jdtService));

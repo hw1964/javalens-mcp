@@ -17,7 +17,8 @@ This is a **substantially extended fork** of [pzalutski-pixel/javalens-mcp](http
 - **v1.3.0** — multi-project `WorkspaceManager`; one javalens process serves many sibling projects with workspace-scoped cross-project search.
 - **v1.4.0** — `WorkspaceFileWatcher`: live `workspace.json` reconciliation so adding/removing a project doesn't require a process restart.
 - **v1.5.0** — Sprint 11 (Phases A–D): Tycho-aware Maven detection, workspace bundle pool for `Require-Bundle`, Gradle Tooling API integration, parametric tool consolidation (66 → 55 tools), Phase E LTK-refactoring foundation.
-- **v1.5.1** — Sprint 11 Phase E (this release): five JDT-LTK structural-refactoring tools — `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`. Tool count 55 → 60.
+- **v1.5.1** — Sprint 11 Phase E: five JDT-LTK structural-refactoring tools — `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`. Tool count 55 → 60.
+- **v1.6.0** — Sprint 12 (this release): two Ring 1 workspace-verification tools — `compile_workspace` (incremental build + aggregated `IMarker` diagnostics) and `run_tests` (JUnit / TestNG via JDT-LTK's launching delegate, headless). Tool count 60 → 62.
 
 See [`docs/release-notes/`](docs/release-notes/) for per-release detail.
 
@@ -161,7 +162,7 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 
 ---
 
-## Tools (60 in v1.5.1)
+## Tools (62 in v1.6.0)
 
 ### Workspace administration (5)
 
@@ -196,6 +197,15 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 **Local:** `rename_symbol`, `organize_imports`, `extract_variable`, `extract_method`, `extract_constant`, `extract_interface`, `inline_variable`, `inline_method`, `change_method_signature`, `convert_anonymous_to_lambda`.
 
 **Structural (LTK-backed, v1.5.1):** `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`.
+
+### Verification (2, v1.6.0)
+
+| Tool | What it does |
+|---|---|
+| `compile_workspace` | Incremental Java build over every loaded project; refreshes local resources first; aggregates `IMarker` problem markers (compile errors, warnings, project-level errors). One call, no per-file walk. |
+| `run_tests` | Launches JUnit 4 / 5 / TestNG via JDT-LTK's launching delegate, headless. Scope is `method` / `class` / `package`. Returns parsed pass/fail/skipped counts plus per-failure stack traces, with stdout/stderr tail capture. |
+
+See [`docs/release-notes/v1.6.0.md`](docs/release-notes/v1.6.0.md) for the full input/result contract and the v1.6.0 known limitation (3 `run_tests` happy-path tests `@Disabled` pending the v1.6.1 fixture-build pipeline).
 
 ### Quick fixes (3)
 
@@ -279,7 +289,7 @@ cd javalens-mcp
 mvn clean verify
 ```
 
-Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.5.2: **122/122** in `org.javalens.core.tests`, **415/415** in `org.javalens.mcp.tests` (1 `EncapsulateField` happy-path `@Disabled` pending an upstream JDT 2024-09 fix — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
+Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.6.0: **122/122** in `org.javalens.core.tests`, **421/424** in `org.javalens.mcp.tests` (4 `@Disabled`: 1 `EncapsulateField` happy-path from v1.5.2; 3 `run_tests` happy-paths pending the v1.6.1 fixture-build pipeline — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
 
 ### Build prerequisites
 

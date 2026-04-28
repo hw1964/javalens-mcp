@@ -61,6 +61,15 @@ public class SampleTest {
         assert true;
     }
 
+    // Sprint 12 (v1.6.0): deliberately-failing test, used by v1.6.1's
+    // happy-path classScope test to assert that test failures land in the
+    // tool's `failures[]` array with stack traces.
+    @Test
+    @DisplayName("Deliberately fails — used by run_tests classScope test")
+    void testThatAlwaysFails() {
+        throw new AssertionError("expected: <2> but was: <3>");
+    }
+
     /**
      * Not a test method - no @Test annotation.
      */

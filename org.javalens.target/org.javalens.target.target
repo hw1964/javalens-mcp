@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <?pde version="3.8"?>
-<target name="JavaLens Target Platform (Eclipse 2024-09)" sequenceNumber="2">
+<target name="JavaLens Target Platform (Eclipse 2024-09)" sequenceNumber="4">
     <locations>
         <!-- Eclipse 2024-09 Release -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
@@ -45,6 +45,16 @@
 
             <!-- Debug core (required by JDT launching) -->
             <unit id="org.eclipse.debug.core" version="0.0.0"/>
+
+            <!-- Sprint 12 (v1.6.0): JUnit launching for run_tests.
+                 - jdt.junit.core: test discovery + launch config types + the
+                   public TestRunListener / ITestCaseElement model API.
+                 - jdt.junit.runtime: runner shim for the forked JVM (JUnit 4
+                   + the platform-launcher bridge).
+                 - jdt.junit5.runtime: Jupiter-engine runner shim. -->
+            <unit id="org.eclipse.jdt.junit.core" version="0.0.0"/>
+            <unit id="org.eclipse.jdt.junit.runtime" version="0.0.0"/>
+            <unit id="org.eclipse.jdt.junit5.runtime" version="0.0.0"/>
 
             <!-- Executable launcher feature for product -->
             <unit id="org.eclipse.equinox.executable.feature.group" version="0.0.0"/>

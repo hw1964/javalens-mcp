@@ -40,6 +40,26 @@ In addition, `runRefactoring` now calls `change.initializeValidationData(monitor
 
 Three of the four previously-disabled happy-path tests (`move_class`, `pull_up`, `push_down`) plus the new cross-bundle `pullUp_acrossOsgiBundles` integration test now pass.
 
+### Sprint 12 (v1.6.0) — `compile_workspace` + `run_tests`
+
+**`compile_workspace`** uses public Eclipse APIs only: `IJavaProject.build`, `IResource.refreshLocal`, `IResource.findMarkers(IMarker.PROBLEM, ...)`. No new target-platform deps. Stable across Eclipse releases.
+
+**`run_tests`** drives JDT-LTK's JUnit launching machinery headlessly. Three new target-platform bundles (NOT just Import-Package — these are full bundles with declarative-services / extensions):
+
+- `org.eclipse.jdt.junit.core` — public test-discovery + launch-config types + `TestRunListener` API.
+- `org.eclipse.jdt.junit.runtime` — JUnit 4 runner shim, runs in the forked test JVM.
+- `org.eclipse.jdt.junit5.runtime` — Jupiter runner shim, runs in the forked test JVM.
+
+After a target-platform bump, verify these IUs still resolve from the new release's repository and that bundle `Export-Package` still includes `org.eclipse.jdt.junit.launcher` (we don't import it, but the launch type id `org.eclipse.jdt.junit.launchconfig` and the attribute keys it consumes are owned by that package). Eclipse occasionally splits or merges `jdt.junit.*` bundles between releases.
+
+[`JUnitLaunchHelper`](../org.javalens.mcp/src/org/javalens/mcp/tools/junit/JUnitLaunchHelper.java) deliberately uses **inlined string values** for the launch-config attribute keys (`org.eclipse.jdt.junit.TEST_KIND`, `org.eclipse.jdt.junit.TESTNAME`, `org.eclipse.jdt.junit.CONTAINER`, plus the `org.eclipse.jdt.launching.PROJECT_ATTR` / `MAIN_TYPE` / `VM_ARGUMENTS` keys) instead of importing `JUnitLaunchConfigurationConstants` / `IJavaLaunchConfigurationConstants`. The values are persisted in user-saved `.launch` configuration XML so they're forever-stable; inlining sidesteps the awkward "is the constants class in the bundle's exported public-API surface?" question across Eclipse releases.
+
+### Known limitation — `run_tests` happy-path tests `@Disabled` (v1.6.0)
+
+The three happy-path tests in `RunTestsToolTest` (`happy_methodScope`, `happy_classScope`, `happy_packageScope`) are `@Disabled` for v1.6.0. Tycho-surefire's headless test runtime doesn't compile our sample-project fixtures — the forked test JVM needs the fixture's classes on disk, and Tycho's test stage doesn't run javac on `test-resources/sample-projects/.../src/test/java`.
+
+Production usage works (manager → real workspace → real test classpath). Validation tests cover the input layer. Full happy-path coverage lands in **v1.6.1** along with the cross-bundle `compile_workspace` integration test.
+
 ### Known limitation — `EncapsulateField` happy-path (JDT 2024-09 bug)
 
 `SelfEncapsulateFieldRefactoring.createSetterMethod` has a bug in its fallback path: when `CodeGeneration.getSetterMethodBodyContent()` returns null (because no `org.eclipse.jdt.ui.text.codetemplates.setterbody` template is registered), it creates a bare `Assignment` AST node and calls `block.statements().add(ass)`. `Block.statements()` expects `Statement` instances, so this fails with `class Assignment is not an instance of class Statement`.
