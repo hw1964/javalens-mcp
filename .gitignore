@@ -1,6 +1,7 @@
-# Gradle
+# Gradle (top-level only — unscoped `build/` would clobber the Java
+# package at org.javalens.mcp/.../tools/build/ shipped in Sprint 13).
 .gradle/
-build/
+/build/
 # Note: gradle/, gradlew, gradlew.bat are NOT ignored - they should be committed
 # so others can build without installing Gradle
 

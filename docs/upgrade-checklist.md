@@ -60,6 +60,20 @@ The three happy-path tests in `RunTestsToolTest` (`happy_methodScope`, `happy_cl
 
 Production usage works (manager → real workspace → real test classpath). Validation tests cover the input layer. Full happy-path coverage lands in **v1.6.1** along with the cross-bundle `compile_workspace` integration test.
 
+### Sprint 13 (v1.7.0) — Ring 2/3/4 tools
+
+**Decision: codegen via `ASTRewrite`, not `org.eclipse.jdt.ui` internal ops.** The Sprint 13 plan initially named `GenerateConstructorOperation` / `GenerateHashCodeEqualsOperation` / `GenerateToStringOperation` / `OverrideMethodsOperation` / `GetterSetterUtil`. All five live in `org.eclipse.jdt.ui` — the GUI bundle, not on our target platform. Sprint 11's LTK refactorings work around this via `AbstractRefactoringTool`'s preferences-seed shim (`initializeJdtManipulation`), but the codegen ops aren't reachable that way; they're transitively bound to JDT-UI's `JavaPlugin` activator. Resolution: build source via `ASTRewrite` directly and the JDT-DOM `AST` factory. More boilerplate per tool (~50 extra lines on average) but no new bundle dep and full headless reachability. See [`tools/codegen/`](../org.javalens.mcp/src/org/javalens/mcp/tools/codegen/).
+
+**Decision: dep tools via `javax.xml`, not M2E API.** The Sprint 13 plan named `IMaven.readModel` / `IMavenProjectRegistry.refresh`. M2E classes are reachable on the target (the bundle is shipped) but not always **active** in headless test runtimes — Tycho-surefire doesn't auto-import projects as M2E projects. Sprint 13 ships the dep tools with `javax.xml.parsers.DocumentBuilder` for read-only inspection plus text-level mutation for in-place edits — works in any Tycho runtime. Richer M2E classpath inspection is a v1.8.x enhancement.
+
+**Cut line — Gradle / Buildship.** Sprint 13 ships **Maven-only**. The dep tools detect non-Maven projects and return `INVALID_PARAMETER` with a clear message rather than guessing. Buildship target addition + Gradle path land as v1.8.x.
+
+**Known limitation — `generate_test_skeleton` auto-detect path `@Disabled`.** Same fixture-build gap that has Sprint 12's `run_tests` happy-paths `@Disabled`: the simple-maven fixture's external Maven deps don't resolve onto JDT's classpath in Tycho-surefire's headless runtime, so `FrameworkDetection.detect("auto", project)` finds nothing. Production usage detects correctly. Tests pass an explicit `framework="junit5"` argument to sidestep. Re-enable once the v1.6.1+ fixture-build pipeline lands.
+
+**Heuristic limitation — `find_unused_dependencies`.** Match logic checks (a) `groupId` as a prefix of any source import, or (b) `artifactId` (with hyphens replaced by dots) as a substring of any import. False positives are possible. v1.8.x will use M2E's resolved JAR contents for precise inspection.
+
+**Subtle correctness bug — `optimize_imports_workspace` AST visit scope.** The naive implementation (visit the entire `CompilationUnit`) treats the import declaration's own qualified name as a use of the imported type, marking every import as "used" and removing nothing. Fix: visit only the type declarations + package declaration, never the import statements themselves. See [`OptimizeImportsWorkspaceTool.collectReferencedTypes`](../org.javalens.mcp/src/org/javalens/mcp/tools/workflow/OptimizeImportsWorkspaceTool.java).
+
 ### Known limitation — `EncapsulateField` happy-path (JDT 2024-09 bug)
 
 `SelfEncapsulateFieldRefactoring.createSetterMethod` has a bug in its fallback path: when `CodeGeneration.getSetterMethodBodyContent()` returns null (because no `org.eclipse.jdt.ui.text.codetemplates.setterbody` template is registered), it creates a bare `Assignment` AST node and calls `block.statements().add(ass)`. `Block.statements()` expects `Statement` instances, so this fails with `class Assignment is not an instance of class Statement`.

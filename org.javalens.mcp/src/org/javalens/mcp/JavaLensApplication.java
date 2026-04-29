@@ -48,12 +48,17 @@ import org.javalens.mcp.tools.PushDownTool;
 import org.javalens.mcp.tools.EncapsulateFieldTool;
 import org.javalens.mcp.tools.CompileWorkspaceTool;
 import org.javalens.mcp.tools.RunTestsTool;
+import org.javalens.mcp.tools.build.AddDependencyTool;
+import org.javalens.mcp.tools.build.FindUnusedDependenciesTool;
+import org.javalens.mcp.tools.build.UpdateDependencyTool;
 import org.javalens.mcp.tools.codegen.GenerateConstructorTool;
 import org.javalens.mcp.tools.codegen.GenerateEqualsHashCodeTool;
 import org.javalens.mcp.tools.codegen.GenerateGettersSettersTool;
 import org.javalens.mcp.tools.codegen.GenerateTestSkeletonTool;
 import org.javalens.mcp.tools.codegen.GenerateToStringTool;
 import org.javalens.mcp.tools.codegen.OverrideMethodsTool;
+import org.javalens.mcp.tools.workflow.FormatTool;
+import org.javalens.mcp.tools.workflow.OptimizeImportsWorkspaceTool;
 import org.javalens.mcp.tools.AnalyzeFileTool;
 import org.javalens.mcp.tools.AnalyzeTypeTool;
 import org.javalens.mcp.tools.AnalyzeMethodTool;
@@ -365,6 +370,15 @@ public class JavaLensApplication implements IApplication {
         toolRegistry.register(new GenerateToStringTool(() -> jdtService));
         toolRegistry.register(new OverrideMethodsTool(() -> jdtService));
         toolRegistry.register(new GenerateTestSkeletonTool(() -> jdtService));
+
+        // Sprint 13 (v1.7.0): Ring 3 build/dep management (Maven-only).
+        toolRegistry.register(new AddDependencyTool(() -> jdtService));
+        toolRegistry.register(new UpdateDependencyTool(() -> jdtService));
+        toolRegistry.register(new FindUnusedDependenciesTool(() -> jdtService));
+
+        // Sprint 13 (v1.7.0): Ring 4 formatter / workflow polish.
+        toolRegistry.register(new FormatTool(() -> jdtService));
+        toolRegistry.register(new OptimizeImportsWorkspaceTool(() -> jdtService));
 
         // Quick fix tools
         toolRegistry.register(new SuggestImportsTool(() -> jdtService));

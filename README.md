@@ -12,13 +12,14 @@ An MCP server that gives AI coding agents the same compiler-accurate understandi
 
 ## Fork relationship
 
-This is a **substantially extended fork** of [pzalutski-pixel/javalens-mcp](https://github.com/pzalutski-pixel/javalens-mcp). The original v1.0–v1.2 work — Eclipse-JDT integration layer, the initial tool surface, the OSGi/Equinox plumbing — is by Piotr Zalutski. From v1.3 onward (Sprint 9–11, ~thousands of LOC) the fork has diverged substantially:
+This is a **substantially extended fork** of [pzalutski-pixel/javalens-mcp](https://github.com/pzalutski-pixel/javalens-mcp). The original v1.0–v1.2 work — Eclipse-JDT integration layer, the initial tool surface, the OSGi/Equinox plumbing — is by Piotr Zalutski. From v1.3 onward (Sprint 9–13, ~tens of thousands of LOC) the fork has diverged substantially:
 
 - **v1.3.0** — multi-project `WorkspaceManager`; one javalens process serves many sibling projects with workspace-scoped cross-project search.
 - **v1.4.0** — `WorkspaceFileWatcher`: live `workspace.json` reconciliation so adding/removing a project doesn't require a process restart.
 - **v1.5.0** — Sprint 11 (Phases A–D): Tycho-aware Maven detection, workspace bundle pool for `Require-Bundle`, Gradle Tooling API integration, parametric tool consolidation (66 → 55 tools), Phase E LTK-refactoring foundation.
 - **v1.5.1** — Sprint 11 Phase E: five JDT-LTK structural-refactoring tools — `move_class`, `move_package`, `pull_up`, `push_down`, `encapsulate_field`. Tool count 55 → 60.
-- **v1.6.0** — Sprint 12 (this release): two Ring 1 workspace-verification tools — `compile_workspace` (incremental build + aggregated `IMarker` diagnostics) and `run_tests` (JUnit / TestNG via JDT-LTK's launching delegate, headless). Tool count 60 → 62.
+- **v1.6.0** — Sprint 12: two Ring 1 workspace-verification tools — `compile_workspace` (incremental build + aggregated `IMarker` diagnostics) and `run_tests` (JUnit / TestNG via JDT-LTK's launching delegate, headless). Tool count 60 → 62.
+- **v1.7.0** — Sprint 13 (this release): 11 new MCP tools across three rings. **Ring 2 (code generation, 6):** `generate_constructor`, `generate_getters_setters`, `generate_equals_hashcode`, `generate_tostring`, `override_methods`, `generate_test_skeleton`. **Ring 3 (build / dependency management, 3 — Maven-only):** `add_dependency`, `update_dependency`, `find_unused_dependencies`. **Ring 4 (formatter / workflow polish, 2):** `format` (file/package/project/workspace scope), `optimize_imports_workspace`. Tool count 62 → 73.
 
 See [`docs/release-notes/`](docs/release-notes/) for per-release detail.
 
@@ -54,7 +55,7 @@ JavaLens drives Eclipse JDT — the same engine that powers Eclipse IDE — so t
 
 ---
 
-## What's in v1.5.x
+## What's in v1.7.x
 
 ### Multi-project workspace (since v1.3)
 
@@ -86,14 +87,14 @@ Three correctness gaps in the project-detection layer closed:
 
 Two PDE bundles loaded into one workspace where bundle A's `Require-Bundle` lists bundle B now have inter-bundle navigation working transparently.
 
-### Tool-surface consolidation (v1.5.0)
+### Tool-surface progression (v1.5.0 — v1.7.0)
 
-Per-workspace tool count: **66 → 55 in v1.5.0 → 60 in v1.5.1** (after the LTK refactorings land). Two parametric tools replace 13 narrow ones:
+Per-workspace tool count: **66 → 55 in v1.5.0 → 60 in v1.5.1 → 62 in v1.6.0 → 73 in v1.7.0**. The v1.5.0 step replaced 13 narrow tools with two parametric ones:
 
 - **`find_pattern_usages(kind, query)`** — `kind ∈ { annotation, instantiation, type_argument, cast, instanceof }`.
 - **`find_quality_issue(kind, …)`** — `kind ∈ { naming, bugs, unused, large_classes, circular_deps, reflection, throws, catches }`.
 
-Both declare typed `kind` enums in their schema with per-kind descriptions, so agents discover capabilities through `tools/list` without trial and error. Frees agent budget for the v1.5.1 refactorings and Sprint 12+ Ring 2 work — important under Antigravity's ≈100-tool cap.
+Both declare typed `kind` enums in their schema with per-kind descriptions, so agents discover capabilities through `tools/list` without trial and error. The freed budget under Antigravity's ≈100-tool cap is what made the v1.5.1 refactorings, v1.6.0 verification tools, and v1.7.0 Ring 2/3/4 expansion fit.
 
 ### Structural refactorings (v1.5.1)
 
@@ -108,6 +109,24 @@ Both declare typed `kind` enums in their schema with per-kind descriptions, so a
 | `encapsulate_field` | Generate getter/setter for a field, replace direct accesses, optionally tighten field visibility. |
 
 All accept the inherited optional `projectKey` for workspace-scoped refactorings. On rejection (`REFACTORING_FAILED`), no files are modified. See [`docs/release-notes/v1.5.1.md`](docs/release-notes/v1.5.1.md) and [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md) — three of the five tools use `org.eclipse.jdt.internal.corext.*` processor classes; the upgrade checklist documents what to verify on Eclipse target-platform bumps.
+
+### Workspace verification (v1.6.0)
+
+`compile_workspace` runs `IncrementalProjectBuilder` over every loaded project (after `refreshLocal` so the agent's most-recent edits are picked up) and reads `IMarker.PROBLEM` markers — same path Eclipse IDE's Problems view uses. Catches cascading errors in untouched files and project-level errors (manifest, classpath, missing `Require-Bundle`) that per-file AST reconcile (`get_diagnostics`) misses.
+
+`run_tests` launches JUnit 4 / 5 / TestNG via JDT-LTK's launching delegate, headless. Method / class / package scope. Returns parsed pass/fail/skipped counts plus per-failure stack traces with bounded stdout/stderr tail capture. Closes the agent's *refactor → compile → test → fix* loop without shelling out to Maven/Gradle.
+
+See [`docs/release-notes/v1.6.0.md`](docs/release-notes/v1.6.0.md).
+
+### Code generation, dependency management, formatter (v1.7.0)
+
+11 new tools across three rings:
+
+- **Ring 2 (code generation, 6):** `generate_constructor`, `generate_getters_setters`, `generate_equals_hashcode`, `generate_tostring`, `override_methods`, `generate_test_skeleton`. All built via `ASTRewrite` directly — no `org.eclipse.jdt.ui` dependency. Bypasses the small mistakes agents make hand-writing modifiers, generics, annotations, and JavaBean conventions.
+- **Ring 3 (build & dependency management, 3 — Maven-only):** `add_dependency`, `update_dependency`, `find_unused_dependencies`. Text-level `pom.xml` mutation preserves user formatting and comments. Gradle/Buildship support is explicitly v1.8.x.
+- **Ring 4 (formatter / workflow polish, 2):** `format` (file/package/project/workspace scope, honours the project's own `org.eclipse.jdt.core.prefs`) and `optimize_imports_workspace` (workspace fan-out of import optimisation, idempotent).
+
+See [`docs/release-notes/v1.7.0.md`](docs/release-notes/v1.7.0.md).
 
 ---
 
@@ -162,7 +181,7 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 
 ---
 
-## Tools (62 in v1.6.0)
+## Tools (73 in v1.7.0)
 
 ### Workspace administration (5)
 
@@ -206,6 +225,36 @@ The watcher loads them on startup and reconciles edits live. For single-project 
 | `run_tests` | Launches JUnit 4 / 5 / TestNG via JDT-LTK's launching delegate, headless. Scope is `method` / `class` / `package`. Returns parsed pass/fail/skipped counts plus per-failure stack traces, with stdout/stderr tail capture. |
 
 See [`docs/release-notes/v1.6.0.md`](docs/release-notes/v1.6.0.md) for the full input/result contract and the v1.6.0 known limitation (3 `run_tests` happy-path tests `@Disabled` pending the v1.6.1 fixture-build pipeline).
+
+### Code generation (6, v1.7.0)
+
+| Tool | What it does |
+|---|---|
+| `generate_constructor` | Constructor that initialises selected fields. Visibility selectable; optional `super()` chaining. |
+| `generate_getters_setters` | Multi-field JavaBean accessors. Boolean fields use `isField()`. Existing accessors are skipped (warning). |
+| `generate_equals_hashcode` | `equals(Object)` + `hashCode()` over selected fields. Primitives use `==`, references use `Objects.equals(...)`. Adds `java.util.Objects` import if missing. |
+| `generate_tostring` | `toString()` in `STRING_CONCATENATION` (default) or `STRING_BUILDER` style. |
+| `override_methods` | Query (returns overridable signatures) or generate mode (`@Override` stubs throwing `UnsupportedOperationException`). |
+| `generate_test_skeleton` | Writes a JUnit/TestNG test class adjacent to the source, one `@Test` stub per public method + `setUp()`. |
+
+All Ring 2 tools build via `ASTRewrite` directly — they do **not** require the `org.eclipse.jdt.ui` bundle. See [`docs/release-notes/v1.7.0.md`](docs/release-notes/v1.7.0.md) for the contract.
+
+### Build & dependency management (3, v1.7.0 — Maven-only)
+
+| Tool | What it does |
+|---|---|
+| `add_dependency` | Adds a `<dependency>` to `pom.xml`. Refuses duplicates. Text-level mutation preserves formatting + comments. |
+| `update_dependency` | Bumps the `<version>` of an existing dep in place. |
+| `find_unused_dependencies` | Read-only: lists deps whose packages don't appear in any source import. Heuristic; treat as suggestions. |
+
+Gradle support is **explicitly deferred to v1.8.x**.
+
+### Workflow polish (2, v1.7.0)
+
+| Tool | What it does |
+|---|---|
+| `format` | JDT formatter at `file` / `package` / `project` / `workspace` scope. Honours the project's own `org.eclipse.jdt.core.prefs`. `dryRun` returns a diff sample. |
+| `optimize_imports_workspace` | Workspace fan-out of import optimisation: removes unused imports, sorts the rest. Idempotent. Complements per-file `organize_imports` (Sprint 11). |
 
 ### Quick fixes (3)
 
@@ -289,7 +338,7 @@ cd javalens-mcp
 mvn clean verify
 ```
 
-Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.6.0: **122/122** in `org.javalens.core.tests`, **421/424** in `org.javalens.mcp.tests` (4 `@Disabled`: 1 `EncapsulateField` happy-path from v1.5.2; 3 `run_tests` happy-paths pending the v1.6.1 fixture-build pipeline — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
+Distribution archives are written to `org.javalens.product/target/products/`. Test counts as of v1.7.0: **122/122** in `org.javalens.core.tests`, **441/446** in `org.javalens.mcp.tests` (5 `@Disabled`: 1 `EncapsulateField` happy-path from v1.5.2; 3 `run_tests` happy-paths from v1.6.0; 1 `generate_test_skeleton` auto-detect path — see [`docs/upgrade-checklist.md`](docs/upgrade-checklist.md)).
 
 ### Build prerequisites
 
@@ -312,9 +361,10 @@ When you change the Eclipse release the fork builds against (currently 2024-09),
                             │ JSON-RPC over stdio
 ┌─────────────────────────────────────────────────────────────────┐
 │  org.javalens.mcp                                               │
-│    JavaLensApplication → ToolRegistry → 60 tools                │
+│    JavaLensApplication → ToolRegistry → 73 tools                │
 │      • workspace admin · navigation · search · analysis         │
-│      • refactoring (15) · quick fixes · metrics                 │
+│      • refactoring (15) · verification (2) · codegen (6)        │
+│      • dep management (3) · workflow polish (2) · quick fixes   │
 └─────────────────────────────────────────────────────────────────┘
                             │
 ┌─────────────────────────────────────────────────────────────────┐
@@ -335,4 +385,4 @@ When you change the Eclipse release the fork builds against (currently 2024-09),
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Original work © Piotr Zalutski; fork additions (Sprint 9–11, v1.3.0+) © Harald Wegner. Both retained per MIT terms.
+MIT — see [LICENSE](LICENSE). Original work © Piotr Zalutski; fork additions (Sprint 9–13, v1.3.0+) © Harald Wegner. Both retained per MIT terms.

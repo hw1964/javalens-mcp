@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: JavaLens MCP
 Bundle-SymbolicName: org.javalens.mcp;singleton:=true
-Bundle-Version: 1.6.0.qualifier
+Bundle-Version: 1.7.0.qualifier
 Bundle-Vendor: JavaLens
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy
@@ -32,6 +32,7 @@ Import-Package: com.fasterxml.jackson.annotation,
  org.eclipse.jdt.core.compiler,
  org.eclipse.jdt.core.dom,
  org.eclipse.jdt.core.dom.rewrite,
+ org.eclipse.jdt.core.formatter,
  org.eclipse.jdt.core.search,
  org.eclipse.ltk.core.refactoring,
  org.eclipse.ltk.core.refactoring.participants,
