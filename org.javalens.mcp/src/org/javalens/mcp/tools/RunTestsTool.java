@@ -2,7 +2,6 @@ package org.javalens.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.core.runtime.NullProgressMonitor;
-import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IMethod;
@@ -12,6 +11,7 @@ import org.javalens.core.LoadedProject;
 import org.javalens.mcp.models.ResponseMeta;
 import org.javalens.mcp.models.ToolResponse;
 import org.javalens.mcp.tools.junit.JUnitLaunchHelper;
+import org.javalens.mcp.tools.shared.FrameworkDetection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -157,7 +157,7 @@ public class RunTestsTool extends AbstractTool {
             req.project = javaProject;
 
             String frameworkRaw = getStringParam(arguments, "framework", "auto");
-            JUnitLaunchHelper.TestRunnerKind runner = resolveFramework(frameworkRaw, javaProject);
+            JUnitLaunchHelper.TestRunnerKind runner = FrameworkDetection.detect(frameworkRaw, javaProject);
             if (runner == null) {
                 return ToolResponse.invalidParameter("framework",
                     "Could not detect a JUnit/TestNG framework on the project's classpath. "
@@ -311,45 +311,4 @@ public class RunTestsTool extends AbstractTool {
         };
     }
 
-    /**
-     * Resolve the framework: explicit value or auto-detect from classpath.
-     * Returns null if {@code framework="auto"} and no test framework is found.
-     */
-    private static JUnitLaunchHelper.TestRunnerKind resolveFramework(String framework,
-                                                                    IJavaProject project) {
-        if (framework != null) {
-            switch (framework.toLowerCase()) {
-                case "junit3" -> { return JUnitLaunchHelper.TestRunnerKind.JUNIT3; }
-                case "junit4" -> { return JUnitLaunchHelper.TestRunnerKind.JUNIT4; }
-                case "junit5" -> { return JUnitLaunchHelper.TestRunnerKind.JUNIT5; }
-                case "testng" -> { return JUnitLaunchHelper.TestRunnerKind.JUNIT4; }
-                case "auto", "" -> { /* fall through to detection */ }
-                default -> { return null; }
-            }
-        }
-        try {
-            IClasspathEntry[] resolved = project.getResolvedClasspath(true);
-            for (IClasspathEntry entry : resolved) {
-                String path = entry.getPath().toString().toLowerCase();
-                if (path.contains("junit-jupiter-api")) {
-                    return JUnitLaunchHelper.TestRunnerKind.JUNIT5;
-                }
-            }
-            for (IClasspathEntry entry : resolved) {
-                String path = entry.getPath().toString().toLowerCase();
-                if (path.contains("junit-4") || path.matches(".*/junit-\\d.*\\.jar")) {
-                    return JUnitLaunchHelper.TestRunnerKind.JUNIT4;
-                }
-            }
-            for (IClasspathEntry entry : resolved) {
-                String path = entry.getPath().toString().toLowerCase();
-                if (path.contains("testng")) {
-                    return JUnitLaunchHelper.TestRunnerKind.JUNIT4;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Classpath inspection failed during framework detection: {}", e.getMessage());
-        }
-        return null;
-    }
 }

@@ -48,6 +48,12 @@ import org.javalens.mcp.tools.PushDownTool;
 import org.javalens.mcp.tools.EncapsulateFieldTool;
 import org.javalens.mcp.tools.CompileWorkspaceTool;
 import org.javalens.mcp.tools.RunTestsTool;
+import org.javalens.mcp.tools.codegen.GenerateConstructorTool;
+import org.javalens.mcp.tools.codegen.GenerateEqualsHashCodeTool;
+import org.javalens.mcp.tools.codegen.GenerateGettersSettersTool;
+import org.javalens.mcp.tools.codegen.GenerateTestSkeletonTool;
+import org.javalens.mcp.tools.codegen.GenerateToStringTool;
+import org.javalens.mcp.tools.codegen.OverrideMethodsTool;
 import org.javalens.mcp.tools.AnalyzeFileTool;
 import org.javalens.mcp.tools.AnalyzeTypeTool;
 import org.javalens.mcp.tools.AnalyzeMethodTool;
@@ -351,6 +357,14 @@ public class JavaLensApplication implements IApplication {
         // Sprint 12 (v1.6.0): Ring 1 workspace verification tools.
         toolRegistry.register(new CompileWorkspaceTool(() -> jdtService));
         toolRegistry.register(new RunTestsTool(() -> jdtService));
+
+        // Sprint 13 (v1.7.0): Ring 2 code generation tools.
+        toolRegistry.register(new GenerateConstructorTool(() -> jdtService));
+        toolRegistry.register(new GenerateGettersSettersTool(() -> jdtService));
+        toolRegistry.register(new GenerateEqualsHashCodeTool(() -> jdtService));
+        toolRegistry.register(new GenerateToStringTool(() -> jdtService));
+        toolRegistry.register(new OverrideMethodsTool(() -> jdtService));
+        toolRegistry.register(new GenerateTestSkeletonTool(() -> jdtService));
 
         // Quick fix tools
         toolRegistry.register(new SuggestImportsTool(() -> jdtService));
