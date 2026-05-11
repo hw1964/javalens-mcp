@@ -7,6 +7,102 @@ For each entry include: ID, date observed, severity, reproducer, expected vs act
 
 ---
 
+## #7 — `add_project` on the fork's own multi-module repo fails with "Build path contains duplicate entry: gradle-tooling-api-8.10.jar"
+
+- **Status:** OPEN
+- **Date observed:** 2026-05-11 (during v1.7.1 post-fix smoke)
+- **Reporter:** Claude (Opus 4.7), via `jl-javalens-ws`
+- **Server version:** 1.7.1
+- **Severity:** MEDIUM — blocks loading the fork's own source as a workspace project. Workaround exists (load individual modules or other projects) but the fork-developing-itself flow is broken.
+
+### Reproducer
+
+```
+mcp__jl-javalens-ws__add_project /home/harald/CursorProjects/javalens-mcp
+```
+
+### Actual
+
+```jsonc
+{
+  "success": false,
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "Internal error: Build path contains duplicate entry: 'home/harald/CursorProjects/javalens-mcp/org.javalens.core/lib/gradle-tooling-api-8.10.jar' for project 'javalens-javalens-mcp-32b2baaa'",
+    "hint": "This may be a bug. Check server logs for details."
+  }
+}
+```
+
+### Expected
+
+Project loaded successfully with the fork's multi-module structure (`org.javalens.core`, `org.javalens.mcp`, `org.javalens.mcp.tests`, `org.javalens.target`, `org.javalens.launcher`, `org.javalens.product`).
+
+### Suspected root cause
+
+JDT's `IJavaProject.setRawClasspath()` rejects classpath arrays with duplicate `IClasspathEntry` paths. The fork's multi-module Maven+PDE hybrid layout has `gradle-tooling-api-8.10.jar` referenced twice — most likely once from `org.javalens.core/lib/` (the directory scan) AND once from `org.javalens.core/.classpath` (explicit `<classpathentry kind="lib">`). `ProjectImporter.addDependencyEntries()` doesn't deduplicate before calling `setRawClasspath()`.
+
+May affect other Tycho-style hybrid repos with both `lib/` directories and explicit `.classpath` lib entries. Worth checking how widespread.
+
+### Suggested fix
+
+In `ProjectImporter.addDependencyEntries()` (or the upstream classpath-collection code), dedupe `IClasspathEntry` instances by their resolved absolute path before passing to `setRawClasspath()`. Or alternatively: track already-added paths in a `Set<Path>` during collection and skip duplicates.
+
+### Cross-reference
+
+- Surfaced during the v1.7.1 release smoke; the fork's own `jl-javalens-ws` workspace can't load itself with the current code.
+- Independent of v1.7.1 fixes; the duplicate-entry path would have been present in v1.7.0 too. Just wasn't tripped on the JATS-ORB-WS workspace's project set.
+
+---
+
+## #6 — `WorkspaceFileWatcher` doesn't reflect live `workspace.json` edits
+
+- **Status:** OPEN
+- **Date observed:** 2026-05-11 (during v1.7.1 post-fix smoke)
+- **Reporter:** Claude (Opus 4.7)
+- **Server version:** 1.7.1
+- **Severity:** MEDIUM — undermines the manager's add-project-while-services-running UX. User adds a project in the manager UI → manager writes the new entry to `workspace.json` → currently-spawned MCP JVMs (Cursor, Claude Code, etc.) never see the update; they only pick it up on next JVM restart.
+
+### Reproducer
+
+1. With both manager and Claude Code running, ensure a workspace's `<workspace>/workspace.json` lists no projects.
+2. Call `mcp__jl-<workspace>__list_projects` → returns `{ projects: [] }`.
+3. In the manager UI, add a project to the workspace (manager writes the updated `workspace.json`).
+4. Wait a few seconds. Re-call `list_projects` from the same Claude Code session.
+5. Observe: still `{ projects: [] }`.
+
+### Expected
+
+`WorkspaceFileWatcher.start()` (in `org.javalens.core.workspace.WorkspaceFileWatcher`, Sprint 10 v1.4.0) is documented as performing "synchronous initial load + arm watcher thread". The watcher should fire on file modify events and incrementally load any new projects.
+
+### Actual
+
+The watcher either:
+- Doesn't fire on the file-change event from the manager's atomic-rename write pattern (manager may write to a `.tmp` file then `rename()`), or
+- Fires but the load path silently fails, or
+- The watcher thread isn't actually running (init bug).
+
+Health check shows `loaded: true, projectCount: 0` after the file edit, suggesting the watcher path is reached but no project gets added.
+
+### Suspected root cause
+
+`WatchService` semantics on Linux: atomic-rename writes generate `ENTRY_CREATE` events on the *new* inode, not `ENTRY_MODIFY` on the existing path. If `WorkspaceFileWatcher` only listens for `ENTRY_MODIFY`, manager-written updates are missed. Same gotcha as many other `WatchService`-based config reloaders.
+
+Alternative: the watcher fires correctly but the load path encounters an exception that's swallowed without logging. Worth checking `WorkspaceFileWatcher.handleEvent()` / equivalent for missing error logging.
+
+### Suggested fix
+
+1. Listen for both `ENTRY_MODIFY` AND `ENTRY_CREATE` on the workspace directory; on either, re-read `workspace.json` and reconcile projects.
+2. Surface any reconciliation errors to a WARN-level log so a stale watcher is debuggable.
+3. Optional but recommended: add a debounce (200ms) so a fast tmp-write-then-rename pair doesn't trigger two reloads.
+
+### Cross-reference
+
+- The Sprint 10 v1.4.0 feature that this watcher implements is the reason the v1.7.1 walk-up fix works at startup. Live updates are orthogonal.
+- Workaround: restart the affected MCP client (kill javalens.jar PID; let parent respawn).
+
+---
+
 ## #5 — javalens-mcp spawned by non-manager MCP clients starts with zero projects loaded
 
 - **Status:** FIXED in v1.7.1
