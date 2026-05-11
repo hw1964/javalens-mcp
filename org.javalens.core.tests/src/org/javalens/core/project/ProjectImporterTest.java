@@ -163,6 +163,83 @@ class ProjectImporterTest {
             "Should prefer Gradle when both build.gradle and WORKSPACE exist");
     }
 
+    // ========== Eclipse PDE / Eclipse Detection (v1.7.1 / bug #4) ==========
+
+    @Test
+    @DisplayName("detectBuildSystem returns ECLIPSE_PDE for project with MANIFEST.MF (Bundle-SymbolicName) + .classpath")
+    void detectBuildSystem_eclipsePde_returnsEclipsePde(@TempDir Path tempDir) throws IOException {
+        Path metaInf = tempDir.resolve("META-INF");
+        Files.createDirectories(metaInf);
+        Files.writeString(metaInf.resolve("MANIFEST.MF"),
+            "Manifest-Version: 1.0\n"
+          + "Bundle-ManifestVersion: 2\n"
+          + "Bundle-SymbolicName: com.example.test;singleton:=true\n"
+          + "Bundle-Version: 1.0.0.qualifier\n");
+        Files.writeString(tempDir.resolve(".classpath"),
+            "<?xml version=\"1.0\"?><classpath><classpathentry kind=\"src\" path=\"src\"/></classpath>");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.ECLIPSE_PDE, buildSystem,
+            "MANIFEST.MF + Bundle-SymbolicName should classify as Eclipse PDE");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem returns ECLIPSE for project with .classpath only (no PDE manifest)")
+    void detectBuildSystem_eclipseOnly_returnsEclipse(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve(".classpath"),
+            "<?xml version=\"1.0\"?><classpath><classpathentry kind=\"src\" path=\"src\"/></classpath>");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.ECLIPSE, buildSystem,
+            ".classpath without PDE manifest should classify as plain Eclipse");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem prefers Maven over Eclipse when both pom.xml and .classpath exist (hybrid project)")
+    void detectBuildSystem_pomAndClasspath_prefersMaven(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("pom.xml"), "<project></project>");
+        Files.writeString(tempDir.resolve(".classpath"),
+            "<?xml version=\"1.0\"?><classpath/>");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.MAVEN, buildSystem,
+            "Maven wins over Eclipse for hybrid projects to keep Maven dependency resolution");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem prefers Maven over ECLIPSE_PDE when MANIFEST.MF + pom both exist (Tycho-style)")
+    void detectBuildSystem_pdeAndPom_prefersMaven(@TempDir Path tempDir) throws IOException {
+        Files.writeString(tempDir.resolve("pom.xml"), "<project></project>");
+        Path metaInf = tempDir.resolve("META-INF");
+        Files.createDirectories(metaInf);
+        Files.writeString(metaInf.resolve("MANIFEST.MF"),
+            "Manifest-Version: 1.0\n"
+          + "Bundle-SymbolicName: com.example.tycho\n");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.MAVEN, buildSystem,
+            "Tycho-style PDE+Maven hybrid must classify as MAVEN so dep resolution uses the Maven path");
+    }
+
+    @Test
+    @DisplayName("detectBuildSystem returns UNKNOWN when MANIFEST.MF exists but has no Bundle-SymbolicName line")
+    void detectBuildSystem_manifestWithoutSymbolicName_returnsUnknown(@TempDir Path tempDir) throws IOException {
+        Path metaInf = tempDir.resolve("META-INF");
+        Files.createDirectories(metaInf);
+        // A bare manifest (e.g. from a fat JAR) without Bundle-SymbolicName is NOT a PDE bundle.
+        Files.writeString(metaInf.resolve("MANIFEST.MF"),
+            "Manifest-Version: 1.0\nMain-Class: com.example.App\n");
+
+        ProjectImporter.BuildSystem buildSystem = importer.detectBuildSystem(tempDir);
+
+        assertEquals(ProjectImporter.BuildSystem.UNKNOWN, buildSystem,
+            "MANIFEST.MF without Bundle-SymbolicName is not a PDE bundle");
+    }
+
     @Test
     @DisplayName("countSourceFiles should count Java files in Bazel project with standard layout")
     void countSourceFiles_countsBazelStandardLayout(@TempDir Path tempDir) throws IOException {

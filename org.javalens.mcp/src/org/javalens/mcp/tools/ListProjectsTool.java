@@ -84,7 +84,9 @@ public class ListProjectsTool implements Tool {
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("projectKey", lp.projectKey());
                 row.put("projectPath", lp.projectRoot().toString());
-                row.put("buildSystem", lp.buildSystem().name().toLowerCase());
+                // v1.7.1 (bug #4): hyphen instead of underscore on the wire so
+                // ECLIPSE_PDE serialises as "eclipse-pde" rather than "eclipse_pde".
+                row.put("buildSystem", lp.buildSystem().name().toLowerCase().replace('_', '-'));
                 row.put("sourceFileCount", lp.sourceFileCount());
                 row.put("packageCount", lp.packageCount());
                 row.put("classpathEntryCount", lp.classpathEntryCount());

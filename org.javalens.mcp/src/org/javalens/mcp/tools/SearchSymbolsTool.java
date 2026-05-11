@@ -133,6 +133,15 @@ public class SearchSymbolsTool extends AbstractTool {
                 }
             }
 
+            // v1.7.1 (bug #2): drop cache-path duplicates. JDT SearchEngine returns
+            // the same FQN from a binary classpath hit (no line/column) AND from
+            // source (with line/column) when project B depends on project A's JAR.
+            // Collapse each (kind, identity) group to its coordinate-bearing entry
+            // when one exists.
+            int beforeDedupe = results.size();
+            results = dedupeBySymbolIdentity(results);
+            int afterDedupe = results.size();
+
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("query", query);
             if (kind != null) data.put("kind", kind);
@@ -140,7 +149,7 @@ public class SearchSymbolsTool extends AbstractTool {
             data.put("pagination", Map.of(
                 "offset", offset,
                 "returned", results.size(),
-                "hasMore", matches.size() > offset + results.size()
+                "hasMore", matches.size() > offset + beforeDedupe
             ));
 
             return ToolResponse.success(data, ResponseMeta.builder()
@@ -157,6 +166,68 @@ public class SearchSymbolsTool extends AbstractTool {
             log.error("Error searching symbols: {}", e.getMessage(), e);
             return ToolResponse.internalError(e);
         }
+    }
+
+    /**
+     * v1.7.1 (bug #2): collapse cache-path duplicates. Groups results by
+     * {@code (kind, qualifiedName)} (or {@code (kind, containingType#name)}
+     * for methods/fields, which have no FQN). Within each group:
+     * <ul>
+     *   <li>If at least one entry has both {@code line} and {@code column} →
+     *       keep only the coordinate-bearing entries; drop binary-classpath
+     *       hits that lack source coordinates.</li>
+     *   <li>If no entry has coordinates → keep one degraded entry; agents
+     *       still get a hit without duplication.</li>
+     * </ul>
+     */
+    static List<Map<String, Object>> dedupeBySymbolIdentity(List<Map<String, Object>> results) {
+        Map<String, List<Map<String, Object>>> groups = new java.util.LinkedHashMap<>();
+        for (Map<String, Object> r : results) {
+            String key = identityKey(r);
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
+        }
+        List<Map<String, Object>> deduped = new ArrayList<>(results.size());
+        for (List<Map<String, Object>> group : groups.values()) {
+            if (group.size() == 1) {
+                deduped.add(group.get(0));
+                continue;
+            }
+            boolean anyWithCoords = false;
+            for (Map<String, Object> r : group) {
+                if (hasCoordinates(r)) {
+                    anyWithCoords = true;
+                    break;
+                }
+            }
+            if (anyWithCoords) {
+                for (Map<String, Object> r : group) {
+                    if (hasCoordinates(r)) {
+                        deduped.add(r);
+                    }
+                }
+            } else {
+                // No coordinate-bearing entry — keep one degraded representative.
+                deduped.add(group.get(0));
+            }
+        }
+        return deduped;
+    }
+
+    static boolean hasCoordinates(Map<String, Object> r) {
+        return r.containsKey("line") && r.containsKey("column");
+    }
+
+    private static String identityKey(Map<String, Object> r) {
+        String kind = String.valueOf(r.get("kind"));
+        Object qn = r.get("qualifiedName");
+        if (qn != null) return kind + "::" + qn;
+        Object containing = r.get("containingType");
+        Object name = r.get("name");
+        if (containing != null && name != null) return kind + "::" + containing + "#" + name;
+        // Last resort — same name, same file is "same symbol". For unidentifiable
+        // entries this prevents false-positive merging across different files.
+        Object fp = r.get("filePath");
+        return kind + "::" + name + "@" + fp;
     }
 
     private Integer getSearchType(String kind) {

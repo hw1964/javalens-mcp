@@ -8,6 +8,7 @@ import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.javalens.core.IJdtService;
 import org.javalens.core.LoadedProject;
+import org.javalens.core.project.ProjectImporter.BuildSystem;
 import org.javalens.mcp.models.ResponseMeta;
 import org.javalens.mcp.models.ToolResponse;
 import org.javalens.mcp.tools.junit.JUnitLaunchHelper;
@@ -59,15 +60,23 @@ public class RunTestsTool extends AbstractTool {
             skip results with stack traces for failures.
 
             USAGE:
+              run_tests(scope={kind:"method", typeName:"com.example.FooTest", methodName:"testBar"})
               run_tests(scope={kind:"method", filePath:"...", line:42, column:4})
               run_tests(scope={kind:"class",  typeName:"com.example.FooTest"})
+              run_tests(scope={kind:"class",  filePath:"...", line:10, column:0})
               run_tests(scope={kind:"package", packageName:"com.example.tests"})
 
             Inputs:
             - scope.kind — "method" | "class" | "package".
-            - scope.filePath / line / column — for method/class; zero-based.
-            - scope.typeName — alternative to filePath for class scope.
-            - scope.packageName — for package scope.
+            - For kind="method": pass EXACTLY ONE of these combinations
+                {typeName, methodName}              (find method by FQN + name)
+                OR {filePath, line, column}         (find method at cursor position)
+              {filePath, methodName} is NOT a valid combination — methodName must pair
+              with typeName, never with filePath.
+            - For kind="class": pass EXACTLY ONE of
+                {typeName}                          (FQN)
+                OR {filePath, line, column}         (find class at cursor position)
+            - For kind="package": pass {packageName}.
             - framework — "junit4" | "junit5" | "testng" | "auto" (default).
             - timeoutSeconds — default 120, hard-cap 600.
             - vmArgs — optional list of JVM flags (e.g. ["-Xmx512m"]).
@@ -79,7 +88,8 @@ public class RunTestsTool extends AbstractTool {
 
             Failure modes:
             - INVALID_PARAMETER — bad scope (no @Test method at position,
-              empty package, no test framework on classpath).
+              empty package, no test framework on classpath, or an unsupported
+              scope-field combination such as {filePath, methodName}).
             - INTERNAL_ERROR — JUnit launch infrastructure failed (missing
               target-platform bundle, etc.).
             """;
@@ -97,15 +107,15 @@ public class RunTestsTool extends AbstractTool {
             "enum", List.of("method", "class", "package"),
             "description", "Scope of the test run."));
         scopeProps.put("filePath", Map.of("type", "string",
-            "description", "Source file (kind=method or kind=class)."));
+            "description", "Source file. For kind=method or kind=class; must be paired with {line, column}, never with methodName."));
         scopeProps.put("line", Map.of("type", "integer",
-            "description", "Zero-based line (kind=method)."));
+            "description", "Zero-based line. Paired with filePath + column for cursor-position lookup (kind=method or kind=class)."));
         scopeProps.put("column", Map.of("type", "integer",
-            "description", "Zero-based column (kind=method)."));
+            "description", "Zero-based column. Paired with filePath + line for cursor-position lookup (kind=method or kind=class)."));
         scopeProps.put("typeName", Map.of("type", "string",
-            "description", "FQN of the test class (alt to filePath for kind=class)."));
+            "description", "Fully-qualified class name. For kind=class: pass alone. For kind=method: pair with methodName."));
         scopeProps.put("methodName", Map.of("type", "string",
-            "description", "Test method name (alt to line/column for kind=method)."));
+            "description", "Test method name. Must be paired with typeName for kind=method. NOT valid with filePath — use {filePath, line, column} for cursor-position lookups instead."));
         scopeProps.put("packageName", Map.of("type", "string",
             "description", "Package FQN (kind=package)."));
         scope.put("properties", scopeProps);
@@ -151,6 +161,24 @@ public class RunTestsTool extends AbstractTool {
             }
         }
         IJavaProject javaProject = loaded.javaProject();
+
+        // v1.7.1 (bug #1): JDT-LTK's JUnit launcher assumes the target project
+        // is an OSGi bundle and dereferences a null Bundle.getHeaders() for plain
+        // Maven/Gradle projects, surfacing as INTERNAL_ERROR / NPE. Short-circuit
+        // with an actionable INVALID_PARAMETER + workaround pointer instead. The
+        // full plain-Maven/Gradle launch path is tracked for v1.8.0.
+        BuildSystem buildSystem = loaded.buildSystem();
+        if (buildSystem == BuildSystem.MAVEN || buildSystem == BuildSystem.GRADLE) {
+            String cmd = buildSystem == BuildSystem.MAVEN
+                ? "mvn test -Dtest='<TestClass>#<method>'"
+                : "gradle test --tests '<TestClass.method>'";
+            return ToolResponse.invalidParameter("projectKey",
+                "Project '" + loaded.projectKey() + "' is " + buildSystem.name().toLowerCase()
+                  + " (no Eclipse PDE nature). The current JDT JUnit launcher requires a "
+                  + "Bundle and produces an OSGi NPE on plain Maven/Gradle projects. "
+                  + "Workaround: run `" + cmd + "` via the Bash tool. "
+                  + "Full plain Maven/Gradle launch path tracked for v1.8.0.");
+        }
 
         try {
             JUnitLaunchHelper.LaunchRequest req = new JUnitLaunchHelper.LaunchRequest();

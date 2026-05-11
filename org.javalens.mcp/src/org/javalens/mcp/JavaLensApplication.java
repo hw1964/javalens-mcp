@@ -164,18 +164,55 @@ public class JavaLensApplication implements IApplication {
      * Eclipse {@code -data} directory if present, otherwise fall back to
      * {@code JAVA_PROJECT_PATH}. This runs asynchronously so the MCP server
      * can respond to {@code initialize} immediately while loading proceeds.
+     *
+     * v1.7.1 (bug #5): also check the parent of the OSGi data dir. The
+     * JavaLensLauncher wrapper injects a UUID subdir into {@code -data} for
+     * session isolation, so OSGi's {@code osgi.instance.area} ends up at
+     * {@code <workspace>/<uuid>/} while the manager writes workspace.json at
+     * {@code <workspace>/workspace.json}. Without the parent-fallback every
+     * non-manager-spawned JVM (Cursor, Claude Code, etc.) saw an empty
+     * project list.
      */
     private void autoLoadProjects() {
         Path dataDir = resolveDataDir();
         if (dataDir != null) {
-            Path workspaceJson = dataDir.resolve("workspace.json");
-            if (Files.isRegularFile(workspaceJson)) {
-                loadFromWorkspaceJson(dataDir);
+            Path workspaceJson = findWorkspaceJson(dataDir);
+            if (workspaceJson != null) {
+                loadFromWorkspaceJson(workspaceJson.getParent());
                 return;
             }
         }
         // Fall back to single-project env-var path.
         autoLoadProjectFromEnv();
+    }
+
+    /**
+     * Look for {@code workspace.json} starting at the OSGi data dir, then
+     * walking up one level to handle the JavaLensLauncher session-isolation
+     * subdir. Returns the path of the file if found, else {@code null}.
+     *
+     * <p>Public + static so unit tests in the {@code org.javalens.mcp.tests}
+     * bundle can exercise the walk-up logic without booting OSGi.
+     */
+    public static Path findWorkspaceJson(Path dataDir) {
+        if (dataDir == null) {
+            return null;
+        }
+        Path candidate = dataDir.resolve("workspace.json");
+        if (Files.isRegularFile(candidate)) {
+            return candidate;
+        }
+        Path parent = dataDir.getParent();
+        if (parent != null) {
+            candidate = parent.resolve("workspace.json");
+            if (Files.isRegularFile(candidate)) {
+                log.info("Found workspace.json in parent of OSGi data dir ({}), " +
+                    "treating that as the workspace root (JavaLensLauncher session-isolation path)",
+                    parent);
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private Path resolveDataDir() {

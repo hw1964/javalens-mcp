@@ -53,7 +53,7 @@ public class ProjectImporter {
 
     private static final Logger log = LoggerFactory.getLogger(ProjectImporter.class);
 
-    public enum BuildSystem { MAVEN, GRADLE, BAZEL, UNKNOWN }
+    public enum BuildSystem { MAVEN, GRADLE, BAZEL, ECLIPSE_PDE, ECLIPSE, UNKNOWN }
 
     /**
      * Tycho packaging values for which Maven's {@code dependency:build-classpath}
@@ -134,6 +134,13 @@ public class ProjectImporter {
 
     /**
      * Detect build system from project structure.
+     *
+     * <p>Order matters when a project has multiple markers. Maven wins over
+     * Gradle wins over Bazel wins over Eclipse — common Tycho-style hybrids
+     * (PDE + Maven pom) are classified as Maven so their dependency resolution
+     * uses the Maven path. Plain Eclipse PDE bundles (MANIFEST.MF +
+     * Bundle-SymbolicName, no pom/gradle) become ECLIPSE_PDE; plain Eclipse
+     * projects (.classpath only) become ECLIPSE. (v1.7.1 / bug #4.)
      */
     public BuildSystem detectBuildSystem(java.nio.file.Path projectPath) {
         if (Files.exists(projectPath.resolve("pom.xml"))) {
@@ -149,7 +156,31 @@ public class ProjectImporter {
             Files.exists(projectPath.resolve("WORKSPACE"))) {
             return BuildSystem.BAZEL;
         }
+        if (hasManifestSymbolicName(projectPath)) {
+            return BuildSystem.ECLIPSE_PDE;
+        }
+        if (Files.exists(projectPath.resolve(".classpath"))) {
+            return BuildSystem.ECLIPSE;
+        }
         return BuildSystem.UNKNOWN;
+    }
+
+    /**
+     * @return {@code true} iff {@code META-INF/MANIFEST.MF} exists at the
+     * project root AND contains a {@code Bundle-SymbolicName} header. That
+     * combination is what makes a directory an Eclipse PDE bundle.
+     */
+    private boolean hasManifestSymbolicName(java.nio.file.Path projectPath) {
+        java.nio.file.Path manifest = projectPath.resolve("META-INF").resolve("MANIFEST.MF");
+        if (!Files.isRegularFile(manifest)) {
+            return false;
+        }
+        try (Stream<String> lines = Files.lines(manifest, java.nio.charset.StandardCharsets.UTF_8)) {
+            return lines.anyMatch(line -> line.startsWith("Bundle-SymbolicName:"));
+        } catch (java.io.IOException e) {
+            log.debug("Failed to read {}: {}", manifest, e.getMessage());
+            return false;
+        }
     }
 
     /**
