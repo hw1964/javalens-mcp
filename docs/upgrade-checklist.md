@@ -14,11 +14,11 @@ This document lists every version-sensitive piece of code in the fork. Run throu
 
 ### Classes touched
 
-| File | Internal classes |
-|---|---|
-| [PullUpTool](../org.javalens.mcp/src/org/javalens/mcp/tools/PullUpTool.java) | `org.eclipse.jdt.internal.corext.codemanipulation.CodeGenerationSettings`, `org.eclipse.jdt.internal.corext.refactoring.structure.PullUpRefactoringProcessor` |
-| [PushDownTool](../org.javalens.mcp/src/org/javalens/mcp/tools/PushDownTool.java) | `org.eclipse.jdt.internal.corext.refactoring.structure.PushDownRefactoringProcessor` |
-| [EncapsulateFieldTool](../org.javalens.mcp/src/org/javalens/mcp/tools/EncapsulateFieldTool.java) | `org.eclipse.jdt.internal.corext.refactoring.sef.SelfEncapsulateFieldRefactoring` |
+| File                                                                                             | Internal classes                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [PullUpTool](../org.javalens.mcp/src/org/javalens/mcp/tools/PullUpTool.java)                     | `org.eclipse.jdt.internal.corext.codemanipulation.CodeGenerationSettings`, `org.eclipse.jdt.internal.corext.refactoring.structure.PullUpRefactoringProcessor` |
+| [PushDownTool](../org.javalens.mcp/src/org/javalens/mcp/tools/PushDownTool.java)                 | `org.eclipse.jdt.internal.corext.refactoring.structure.PushDownRefactoringProcessor`                                                                          |
+| [EncapsulateFieldTool](../org.javalens.mcp/src/org/javalens/mcp/tools/EncapsulateFieldTool.java) | `org.eclipse.jdt.internal.corext.refactoring.sef.SelfEncapsulateFieldRefactoring`                                                                             |
 
 `MoveClassTool` and `MovePackageTool` use only public descriptor API (`MoveDescriptor` and `RenameJavaElementDescriptor`).
 
@@ -74,6 +74,29 @@ Production usage works (manager → real workspace → real test classpath). Val
 
 **Subtle correctness bug — `optimize_imports_workspace` AST visit scope.** The naive implementation (visit the entire `CompilationUnit`) treats the import declaration's own qualified name as a use of the imported type, marking every import as "used" and removing nothing. Fix: visit only the type declarations + package declaration, never the import statements themselves. See [`OptimizeImportsWorkspaceTool.collectReferencedTypes`](../org.javalens.mcp/src/org/javalens/mcp/tools/workflow/OptimizeImportsWorkspaceTool.java).
 
+### Sprint 14 (v1.8.x) follow-up backlog
+
+Items deferred from Sprint 13 plus IntelliJ-parity tools the agent is missing. Surfaced here so the next sprint's plan starts from a real list.
+
+**Gradle path for the Ring 3 dep tools.** Sprint 13 ships `add_dependency` / `update_dependency` / `find_unused_dependencies` Maven-only — they detect non-Maven projects and return `INVALID_PARAMETER`. Adding Gradle:
+
+- Target platform: `org.eclipse.buildship.core` is **not** on our target today; add it via the existing Eclipse update site (Buildship ships from the same `download.eclipse.org` updates path as JDT). Bump `sequenceNumber` in [`org.javalens.target/org.javalens.target.target`](../org.javalens.target/org.javalens.target.target).
+- `add_dependency`: append a line to the `dependencies { ... }` block in `build.gradle` / `build.gradle.kts`. Buildship's project model is read-only; mutate the file textually (preserve user formatting, same approach as the Maven path) and trigger a Gradle refresh via `org.eclipse.buildship.core.workspace.GradleBuild.synchronize`.
+- `update_dependency`: regex-replace the version in the matched dep line. Single-quoted, double-quoted, and Kotlin-DSL forms all need handling.
+- `find_unused_dependencies`: parse declared deps from `build.gradle` (regex over `(implementation|api|compileOnly|...)\s+['"]g:a:v['"]`); rest of the heuristic is identical to the Maven path. Optional richer mode: use Buildship's resolved-classpath model.
+- Detection precedence in all three tools: `pom.xml` first (Maven wins on hybrid projects), `build.gradle*` second.
+
+**Richer `find_unused_dependencies` via M2E classpath inspection.** The v1.7.0 heuristic (`groupId` prefix match + `artifactId`-as-dotted-suffix) has known false positives for deps whose package names don't follow the coordinate convention (e.g. some Spring-related artifacts). For a precise read, walk the M2E-resolved classpath: each declared dep has a resolved JAR; index its actual provided packages via `JarFile`/`ZipFile` walk and `package-info.class` / class-prefix extraction; cross-reference against import statements collected from the source tree. Yields zero false positives at the cost of M2E being active in the runtime — defer the check to projects with M2E auto-import on.
+
+**Duplicate code detection (`find_duplicate_code`).** IntelliJ surfaces duplicate code via structural AST matching (the *Locate Duplicates* inspection); we don't have an equivalent today. Two reasonable implementation paths:
+
+- **Method-granularity** (cheap, ships first): hash each method body's normalized AST (rename locals to `$0`/`$1`/…, drop literals, drop comments) and group methods with matching hashes. Useful for "these N methods are 90% identical — extract a shared one".
+- **Token-stream** (PMD CPD-style): tokenize each compilation unit, find runs of N+ matching tokens across files. Catches statement-level duplication that method-AST hashing misses but at higher cost.
+
+Start with the method-granularity tool; promote to token-stream if agent demand warrants. Result shape: `{operation, duplicates: [{members: [{filePath, line, methodName}, ...], similarity: 0.0–1.0, tokens: int}]}`. Read-only.
+
+**Process-death → `Failed` phase.** Manager-side: today's polling flips a dead workspace to `Stopped`, not `Failed`. The Sprint 12 plan promised the tray icon flips to 🔴 within ~5s of external kill — that path needs the polling to recognise unexpected exits (non-zero exit code, no graceful-shutdown signal seen) and set `Failed` instead. Tracked here because the fork's tray menu shows the result of that aggregation.
+
 ### Known limitation — `EncapsulateField` happy-path (JDT 2024-09 bug)
 
 `SelfEncapsulateFieldRefactoring.createSetterMethod` has a bug in its fallback path: when `CodeGeneration.getSetterMethodBodyContent()` returns null (because no `org.eclipse.jdt.ui.text.codetemplates.setterbody` template is registered), it creates a bare `Assignment` AST node and calls `block.statements().add(ass)`. `Block.statements()` expects `Statement` instances, so this fails with `class Assignment is not an instance of class Statement`.
@@ -81,6 +104,49 @@ Production usage works (manager → real workspace → real test classpath). Val
 To make this work in headless mode we'd need to recreate Eclipse JDT-UI's full code-template machinery: `JavaContextType` (subclass of `CodeTemplateContextType` registering `${field}` / `${enclosing_method}` / etc. variables) plus a populated `ContributionContextTypeRegistry` set via `JavaManipulation.setCodeTemplateContextRegistry(...)`. That's deeper into JDT-UI internals than is reasonable to maintain across target-platform bumps.
 
 The fix belongs upstream — `createSetterMethod` should wrap the fallback `Assignment` in an `ExpressionStatement` before adding it to the block. Until then, `EncapsulateFieldToolTest.happy_encapsulatePublicField` stays `@Disabled` with an explanatory message; validation and conflict paths still cover the tool. The other four happy-path tests pass.
+
+## Agent feedback — what actually moves the needle
+
+Field notes from real agent sessions, dated. Goal: prioritise the tools that change agent behaviour for the better; cut or hide the rest. Not aspirational — what was used vs what wasn't.
+
+### 2026-05-05 — strategies_orb Sprint 6a Wave 1 (Slot encapsulation + S-PhaseC/FixB/Gap3)
+
+Refactor across one bundle, ~50 call sites, ~30 new tests, three small architectural changes. Agent: Claude (Opus 4.7), workspace `jl-jats-orb-ws` loaded.
+
+**Used and earned its keep:**
+
+- **`compile_workspace --projectKey ... --minSeverity ERROR`** — invoked 4×, sub-second clean reads. Replaces a slow `mvn clean test-compile` round-trip (≈30 s) at every checkpoint. Caught one stale-Maven-class divergence: Maven said "nothing to compile" while my edits had broken `Slot.java`; `compile_workspace` returned the real errors instantly. **This is the killer tool. Keep it fast, keep it reliable.**
+- **`find_references` / `find_implementations`** — used by Phase A research subagents. Produced a clean rewrite-surface inventory that caught 3 sites my plan had missed (`OrbJatsStrategyParityRunner:460`, `NettingGuardTest:255/258`). For any field/method whose name collides with non-Java tokens or appears in comments/strings, `find_references` beats grep on signal-to-noise.
+
+**Not used, despite plan calling for them:**
+
+- **`encapsulate_field`** — skipped. The refactor needed a *custom* API shape (`addEquityUsd(delta)` instead of an auto-generated `setEquityUsd(value)`, plus a symmetry rewrite on `setTpOrder`/`clearTpOrder`). The MCP tool would have produced mechanical accessors I'd then hand-edit. `Edit` + a one-liner `sed` for the 50+ call sites was shorter.
+- **`rename_symbol`** — skipped for the same reason (rename was bundled into a shape change). User notes that when the task IS "rename X everywhere", `rename_symbol` does work and is preferred over sed. Confirmed. **Right tool, wrong task in this session.**
+- **`extract_method` / `extract_variable` / `move_class` / `pull_up` / `push_down`** — never needed. Sprint shape was localised.
+
+**Friction observed:**
+
+- **`ToolSearch` deferred-tool dance** is real friction. To call any tool not in the always-loaded set, the agent must `ToolSearch query="select:<name>"` first to load the schema, then call. For tools the agent might use 0-or-1 times per session, this raises the bar to "is this clearly worth the round-trip" and most aren't. Agents (rationally) fall back to `Bash` + `grep`/`sed` for one-shot questions. **The long-tail tools are effectively invisible unless the agent already knows their name.** Two possible fixes:
+  - Default-load the high-value tools (`compile_workspace`, `get_diagnostics`, `find_references`, `find_implementations`, `rename_symbol`) so agents don't pay the round-trip.
+  - Or add a `list_tools` / `tool_recommendations` entry-point that surfaces "for *this* kind of task, consider these tools" so agents can discover without already knowing.
+- **Refactoring tools are go/no-go with no preview.** When an agent considers `encapsulate_field`, it has no way to know whether the resulting accessor names + visibility match what's wanted without running the refactor and then either accepting or backing out. A **dry-run mode that returns the proposed diff** would let agents pick "MCP refactor vs manual" with confidence. Today the safe choice is manual.
+
+**Suggestions ranked by likely impact on agent precision:**
+
+1. **Default-load the killer tools.** `compile_workspace` + `get_diagnostics` + `find_references` + `find_implementations` + `rename_symbol`. Removing the `ToolSearch` round-trip on these alone would change agent behaviour. Long-tail tools can stay deferred.
+2. **Dry-run mode for every refactoring tool.** Return the unified diff that *would* be applied. Agent decides go/no-go. Avoids the "if the shape doesn't match exactly, manual is faster" failure mode.
+3. **Structured `find_references` output.** Currently agents post-process the raw output with regex; if the tool returned `[{filePath, line, kind: "read"|"write"|"declaration", snippet}]` directly, it'd match how agents actually need to use it (rewrite surface inventory). Write/read classification specifically would have saved Phase A subagents a parsing pass.
+4. **Headline a small set of recommended-tools.** Most of the ~80 tools in the workspace are completist. The agent has no idea which 5 are load-bearing and which 75 are belt-and-braces. A short README in the workspace surfacing "for refactor sprints, reach for X/Y/Z first" would reduce the "fall back to bash" reflex.
+
+**What would NOT help:**
+
+- More tools. The catalogue is already long.
+- Tighter integration with niche IDE features. Agents don't use them.
+- Anything that requires a multi-step setup before the first call.
+
+### Template for future sessions
+
+Date — task — used (with count) / not used (with reason) / friction / suggestions. Keep it terse; the value is in the cumulative pattern across sessions, not any single entry.
 
 ## Tycho project-import edges
 
