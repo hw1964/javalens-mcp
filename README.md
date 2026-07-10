@@ -1,3 +1,9 @@
+> [!IMPORTANT]
+> **⚠️ This project is archived — superseded by [jawata](https://github.com/haraldwegner/jawata-mcp).**
+> Development continued as **jawata-mcp** (formerly goja-mcp): compiler-accurate Java
+> analysis & refactoring for AI agents, now with full parity-gated refactoring, multi-step
+> plans, and a grounded memory store. → **https://github.com/haraldwegner/jawata-mcp**
+
 # JavaLens — IDE-grade Java code intelligence for AI agents
 
 [![GitHub release](https://img.shields.io/github/v/release/hw1964/javalens-mcp)](https://github.com/hw1964/javalens-mcp/releases)
